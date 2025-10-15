@@ -6,7 +6,6 @@ import { QdrantVectorStore } from "@langchain/qdrant";
 import { writeFile } from 'fs/promises';
 
 export const maxDuration = 60;
-export const bodySizeLimit = "20mb";
 
 export async function POST(req: NextRequest) {
   try {

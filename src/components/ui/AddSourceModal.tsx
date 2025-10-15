@@ -2,6 +2,7 @@ import { useState, FC, ChangeEvent } from 'react';
 import { CloseIcon } from './Icons';
 import { Source } from '../../types';
 
+
 interface AddSourceModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -40,6 +41,7 @@ const AddSourceModal: FC<AddSourceModalProps> = ({ isOpen, onClose, onAddSource 
             errorMsg = errorResult.error || errorMsg;
         } catch (e) {
             // Response was not JSON, do nothing and use the status text
+            console.log(e)
         }
         throw new Error(errorMsg);
       }

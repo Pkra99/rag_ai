@@ -1,6 +1,6 @@
 import { FC } from 'react';
 import { Source, Message } from '../../types';
-import { FilterIcon, UploadIcon } from '../ui/Icons';
+import { UploadIcon } from '../ui/Icons';
 import ChatInput from './ChatInput';
 import ThemeSwitch from '../ThemeSwitch';
 
