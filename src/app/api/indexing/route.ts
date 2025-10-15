@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from "path";
+import "dotenv/config";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { QdrantVectorStore } from "@langchain/qdrant";
