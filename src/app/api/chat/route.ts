@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import "dotenv/config";
+// import "dotenv/config";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { QdrantVectorStore } from "@langchain/qdrant";
 import { GoogleGenerativeAI } from "@google/generative-ai";
