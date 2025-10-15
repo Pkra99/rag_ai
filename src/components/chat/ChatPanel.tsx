@@ -2,6 +2,7 @@ import { FC } from 'react';
 import { Source, Message } from '../../types';
 import { FilterIcon, UploadIcon } from '../ui/Icons';
 import ChatInput from './ChatInput';
+import ThemeSwitch from '../ThemeSwitch';
 
 interface ChatPanelProps {
   sources: Source[];
@@ -15,7 +16,8 @@ const ChatPanel: FC<ChatPanelProps> = ({ sources, messages, isLoading, openModal
   <section className="w-2/3 bg-[#2a2b2d] rounded-lg p-4 flex flex-col">
     <div className="flex justify-between items-center mb-4">
       <h2 className="text-lg font-semibold">Chat</h2>
-      <FilterIcon />
+      <ThemeSwitch />
+      {/* <FilterIcon /> */}
     </div>
     <div className="flex-grow flex flex-col justify-center text-center overflow-y-auto">
       {sources.length === 0 ? (
