@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import path from "path";
 import "dotenv/config";
+// 💡 No longer need 'path' or 'writeFile'
+// import path from "path";
+// import { writeFile } from 'fs/promises';
+
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { QdrantVectorStore } from "@langchain/qdrant";
-import { writeFile } from 'fs/promises';
 
 export const maxDuration = 60;
 
@@ -17,7 +19,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { 
           success: false, 
-          error: "Required environment variables (QDRANT_URL, QDRANT_KEY, GOOGLE_API_KEY) are not set." 
+          error: "Required environment variables (QDRANT_URL, QDRANT_KEY, GOOGLE_GENERATIVE_AI_API_KEY) are not set." 
         },
         { status: 500 }
       );
@@ -33,29 +35,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Save the file temporarily
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const filePath = path.join(process.cwd(), "public", file.name);
-    await writeFile(filePath, buffer);
-
-    console.log("PDF file saved, loading documents...");
-
-    // Load PDF documents
-    const loader = new PDFLoader(filePath);
+    // ✅ CRITICAL FIX 1: Process the file in memory
+    // LangChain's PDFLoader can accept a Blob directly (a File is a type of Blob).
+    // This avoids saving to disk, preventing race conditions and issues with serverless filesystems.
+    console.log("Loading PDF from memory...");
+    const loader = new PDFLoader(file);
     const docs = await loader.load();
 
-    console.log(`Loaded ${docs.length} documents from PDF`);
+    console.log(`Loaded ${docs.length} pages from PDF`);
 
-    // Use Google's embedding model
+    // ✅ CRITICAL FIX 2: Add metadata to each document
+    // This adds the filename to each chunk's metadata, allowing you to filter
+    // results for this specific document during the retrieval step.
+    docs.forEach(doc => {
+      doc.metadata = { ...doc.metadata, source: file.name };
+    });
+
     const embeddings = new GoogleGenerativeAIEmbeddings({
       apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-      modelName: "text-embedding-004", // Latest Google embedding model
+      // 💡 Switched to `model` for consistency with latest library versions
+      model: "text-embedding-004",
     });
 
     console.log("Creating embeddings and storing in Qdrant...");
 
-    // Store documents in Qdrant with Google embeddings
+    // Store documents in Qdrant. The metadata will be indexed alongside the vectors.
     await QdrantVectorStore.fromDocuments(docs, embeddings, {
       url: process.env.QDRANT_URL,
       apiKey: process.env.QDRANT_KEY,
@@ -71,7 +75,8 @@ export async function POST(req: NextRequest) {
           id: Date.now(),
           name: file.name,
           type: "Uploaded File",
-          documentsIndexed: docs.length,
+          // 💡 Changed to pages for clarity
+          pagesIndexed: docs.length,
         },
       },
       { status: 200 }

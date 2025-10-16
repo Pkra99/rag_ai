@@ -1,13 +1,14 @@
 import { FC } from 'react';
 import { Source } from '../../types';
-import { PanelIcon, PlusIcon, DiscoverIcon, FileIcon } from '../ui/Icons';
+import { PanelIcon, PlusIcon, DiscoverIcon, FileIcon, DeleteIcon } from '../ui/Icons'; // ✅ Import DeleteIcon
 
 interface SourcesPanelProps {
   openModal: () => void;
   sources: Source[];
+  onDeleteSource: (id: number) => void; // ✅ Add a new prop to handle deletion
 }
 
-const SourcesPanel: FC<SourcesPanelProps> = ({ openModal, sources }) => (
+const SourcesPanel: FC<SourcesPanelProps> = ({ openModal, sources, onDeleteSource }) => (
   <aside className="w-1/3 bg-[#2a2b2d] rounded-lg p-4 flex flex-col">
     <div className="flex justify-between items-center mb-4">
       <h2 className="text-lg font-semibold">Sources</h2>
@@ -31,9 +32,20 @@ const SourcesPanel: FC<SourcesPanelProps> = ({ openModal, sources }) => (
       ) : (
         <ul>
           {sources.map(source => (
-            <li key={source.id} className="bg-gray-700 p-3 rounded-md mb-2">
-              <p className="font-semibold text-sm truncate">{source.name}</p>
-              <p className="text-xs text-gray-400">{source.type}</p>
+            // ✅ Use a flex container to position the delete button
+            <li key={source.id} className="flex items-center justify-between bg-gray-700 p-3 rounded-md mb-2">
+              <div>
+                <p className="font-semibold text-sm truncate">{source.name}</p>
+                <p className="text-xs text-gray-400">{source.type}</p>
+              </div>
+              {/* ✅ Add the delete button */}
+              <button 
+                onClick={() => onDeleteSource(source.id)} 
+                className="p-1 rounded-full text-gray-400 hover:bg-gray-600 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500"
+                aria-label={`Delete source ${source.name}`}
+              >
+                <DeleteIcon />
+              </button>
             </li>
           ))}
         </ul>

@@ -19,6 +19,14 @@ const NotebookLMPage: FC = () => {
     setSources(prevSources => [...prevSources, source]);
     setMessages([]); 
   };
+   const handleDeleteSource = (idToDelete: number) => {
+    // Filter out the source that needs to be deleted
+    setSources(currentSources =>
+      currentSources.filter(source => source.id !== idToDelete)
+    );
+    // Also clear the chat history, as the context has now changed
+    setMessages([]); 
+  };
 
   const handleSendMessage = async (question: string) => {
     const userMessage: Message = { id: Date.now(), text: question, sender: 'user' };
@@ -51,7 +59,7 @@ const NotebookLMPage: FC = () => {
   return (
     <div className="bg-[#1e1f20] text-gray-300 font-sans min-h-screen flex flex-col">
       <main className="flex-grow flex p-4 gap-4 overflow-hidden h-screen">
-        <SourcesPanel openModal={openModal} sources={sources} />
+        <SourcesPanel openModal={openModal} sources={sources} onDeleteSource={handleDeleteSource} />
         <ChatPanel 
           sources={sources} 
           messages={messages}
