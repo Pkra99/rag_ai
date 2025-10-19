@@ -3,9 +3,13 @@ import "dotenv/config";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { QdrantVectorStore } from "@langchain/qdrant";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { Agent, run } from "@openai/agents";
+import { aisdk } from "@openai/agents-extensions";
+import { google } from "@ai-sdk/google";
 
 // Initialize Gemini client
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
+//const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
+
 
 export async function POST(req: NextRequest) {
   try {
@@ -36,32 +40,43 @@ export async function POST(req: NextRequest) {
     });
 
     const vectorRetriever = vectorStore.asRetriever({
-      k: 3,
+      k: 4,
     });
 
     const relevantChunks = await vectorRetriever.invoke(question);
+
+    const context = relevantChunks
+      .map(
+        (doc, i) =>
+          `Context #${i + 1} (Page ${doc.metadata?.page || "?"}):\n${doc.pageContent}`
+      )
+      .join("\n\n");
 
     const SYSTEM_PROMPT = `
 You are an AI assistant who search the user query from the context available to you from the PDF file with content and page number.
 Only answer based on the available context from file only.
 
 Context:
-${JSON.stringify(relevantChunks)}
+${context}
 `;
 
     // Use Gemini model for chat completion
-    const model = genAI.getGenerativeModel({ 
-      model: process.env.GEMINI_MODEL || "gemini-2.5-flash"
-    });
+    const model = aisdk(google("gemini-2.5-flash"))
+
+    const agent = new Agent({
+      name: "RAG-Agent",
+      model,
+      instructions: SYSTEM_PROMPT,
+    })
 
     // Combine system prompt and user question for Gemini
     const prompt = `${SYSTEM_PROMPT}\n\nUser Question: ${question}`;
 
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const text = response.text();
+    const result = await run(agent, prompt);
+    const response = result.output;
+    // const text = response.toString;
 
-    return NextResponse.json({ text });
+    return NextResponse.json({ response });
   } catch (error: any) {
     console.error("Error in chat route:", error);
     return NextResponse.json(

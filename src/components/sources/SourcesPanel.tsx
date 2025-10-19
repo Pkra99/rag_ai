@@ -1,57 +1,102 @@
-import { FC } from 'react';
-import { Source } from '../../types';
-import { PanelIcon, PlusIcon, DiscoverIcon, FileIcon, DeleteIcon } from '../ui/Icons'; // ✅ Import DeleteIcon
+import { FileText, X, Globe, Type, BookOpen } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { AddSourceDialog, SourceInput } from "./AddSourceDialog";
+import { Badge } from "@/components/ui/badge";
 
-interface SourcesPanelProps {
-  openModal: () => void;
-  sources: Source[];
-  onDeleteSource: (id: number) => void; // ✅ Add a new prop to handle deletion
+interface Source {
+  id: string;
+  name: string;
+  type: string;
+  size: string;
+  sourceType: "file" | "url" | "text";
 }
 
-const SourcesPanel: FC<SourcesPanelProps> = ({ openModal, sources, onDeleteSource }) => (
-  <aside className="w-1/3 bg-[#2a2b2d] rounded-lg p-4 flex flex-col">
-    <div className="flex justify-between items-center mb-4">
-      <h2 className="text-lg font-semibold">Sources</h2>
-      <PanelIcon />
-    </div>
-    <div className="flex gap-2 mb-4">
-      <button onClick={openModal} className="flex-1 flex items-center justify-center gap-2 bg-gray-600 hover:bg-gray-500 rounded-md py-2 text-sm">
-        <PlusIcon /> Add
-      </button>
-      <button className="flex-1 flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 rounded-md py-2 text-sm">
-        <DiscoverIcon /> Discover
-      </button>
-    </div>
-    <div className="flex-grow overflow-y-auto">
-      {sources.length === 0 ? (
-        <div className="text-center text-gray-400 mt-16">
-          <FileIcon />
-          <p className="mt-4 font-semibold">Saved sources will appear here</p>
-          <p className="text-xs mt-2">Click Add source above to add PDFs, websites, text, videos or audio files.</p>
-        </div>
-      ) : (
-        <ul>
-          {sources.map(source => (
-            // ✅ Use a flex container to position the delete button
-            <li key={source.id} className="flex items-center justify-between bg-gray-700 p-3 rounded-md mb-2">
-              <div>
-                <p className="font-semibold text-sm truncate">{source.name}</p>
-                <p className="text-xs text-gray-400">{source.type}</p>
-              </div>
-              {/* ✅ Add the delete button */}
-              <button 
-                onClick={() => onDeleteSource(source.id)} 
-                className="p-1 rounded-full text-gray-400 hover:bg-gray-600 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500"
-                aria-label={`Delete source ${source.name}`}
-              >
-                <DeleteIcon />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  </aside>
-);
+interface SourcesPanelProps {
+  sources: Source[];
+  onAddSource: (source: SourceInput) => void;
+  onRemoveSource: (id: string) => void;
+}
 
-export default SourcesPanel;
+export function SourcesPanel({ sources, onAddSource, onRemoveSource }: SourcesPanelProps) {
+  const getSourceIcon = (sourceType: "file" | "url" | "text") => {
+    switch (sourceType) {
+      case "url":
+        return <Globe className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;
+      case "text":
+        return <Type className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;
+      default:
+        return <FileText className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;
+    }
+  };
+
+  return (
+    <div className="h-full flex flex-col bg-card/30 backdrop-blur-sm border-r border-border">
+      <div className="p-6 border-b border-border bg-card/50">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-primary/10 rounded-lg">
+            <BookOpen className="w-5 h-5 text-primary" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold tracking-tight">Sources</h2>
+            <p className="text-xs text-muted-foreground">
+              {sources.length} {sources.length === 1 ? 'document' : 'documents'}
+            </p>
+          </div>
+        </div>
+        <AddSourceDialog onAddSource={onAddSource} />
+      </div>
+
+      <ScrollArea className="flex-1 p-4">
+        <div className="space-y-2">
+          {sources.length === 0 ? (
+            <div className="text-center py-12 space-y-4">
+              <div className="w-16 h-16 mx-auto bg-muted rounded-2xl flex items-center justify-center">
+                <BookOpen className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-medium">No sources yet</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Add documents to build your knowledge base
+                </p>
+              </div>
+            </div>
+          ) : (
+            sources.map((source) => (
+              <Card
+                key={source.id}
+                className="p-4 hover:shadow-md hover:border-primary/20 transition-all group cursor-pointer"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10 flex-shrink-0">
+                    {source.sourceType === "url" && <Globe className="w-4 h-4 text-primary" />}
+                    {source.sourceType === "text" && <Type className="w-4 h-4 text-primary" />}
+                    {source.sourceType === "file" && <FileText className="w-4 h-4 text-primary" />}
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <p className="text-sm font-medium truncate">{source.name}</p>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="text-xs">
+                        {source.sourceType === "file" ? "📄 File" : source.sourceType === "url" ? "🌐 Website" : "📝 Text"}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">· {source.size}</span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => onRemoveSource(source.id)}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </Card>
+            ))
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}

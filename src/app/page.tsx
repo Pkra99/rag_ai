@@ -1,43 +1,180 @@
-"use client"; 
+'use client'
+import { useState } from "react";
+import { SourcesPanel } from "@/components/sources/SourcesPanel";
+import { ChatInterface } from "@/components/chat/ChatInterface";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { useToast } from "@/hooks/use-toast";
+import { SourceInput } from "@/components/sources/AddSourceDialog";
 
-import { useState, FC } from 'react';
-import { Source, Message } from '../types';
-import SourcesPanel from '../components/sources/SourcesPanel';
-import ChatPanel from '../components/chat/ChatPanel';
-import AddSourceModal from '../components/ui/AddSourceModal';
+interface Source {
+  id: string;
+  name: string;
+  type: string;
+  size: string;
+  sourceType: "file" | "url" | "text";
+}
 
-const NotebookLMPage: FC = () => {
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+}
+
+const Index = () => {
   const [sources, setSources] = useState<Source[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const { toast } = useToast();
 
-  const openModal = () => setIsModalOpen(true);
-  const closeModal = () => setIsModalOpen(false);
+  const handleAddSource = async (sourceInput: SourceInput) => {
+    try {
+      // Create FormData for the unified indexing endpoint
+      const formData = new FormData();
 
-  const addSource = (source: Source) => {
-    setSources(prevSources => [...prevSources, source]);
-    setMessages([]); 
+      if (sourceInput.type === "file" && sourceInput.content instanceof File) {
+        // Handle file upload
+        const file = sourceInput.content;
+        formData.append('file', file);
+
+        const response = await fetch('/api/indexing/', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          const newSource: Source = {
+            id: data.source?.id?.toString() || Math.random().toString(36).substring(7),
+            name: data.source?.name || file.name,
+            type: data.source?.type || file.type.split("/")[1]?.toUpperCase() || "FILE",
+            size: `${(file.size / 1024).toFixed(1)} KB`,
+            sourceType: "file",
+          };
+
+          setSources([...sources, newSource]);
+          setMessages([]); // Clear messages when new source is added
+          
+          toast({
+            title: "Source added",
+            description: `${newSource.name} has been indexed successfully. ${data.source?.documentsIndexed || 0} documents processed.`,
+          });
+        } else {
+          throw new Error(data.error || 'Failed to upload file');
+        }
+      } else if (sourceInput.type === "url") {
+        // Handle URL
+        formData.append('url', sourceInput.content as string);
+
+        const response = await fetch('/api/indexing/', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          const newSource: Source = {
+            id: data.source?.id?.toString() || Math.random().toString(36).substring(7),
+            name: data.source?.name || sourceInput.name,
+            type: data.source?.type || "WEBSITE",
+            size: "URL",
+            sourceType: "url",
+          };
+
+          setSources([...sources, newSource]);
+          setMessages([]); // Clear messages when new source is added
+          
+          toast({
+            title: "Source added",
+            description: `${newSource.name} has been indexed successfully. ${data.source?.documentsIndexed || 0} documents processed.`,
+          });
+        } else {
+          throw new Error(data.error || 'Failed to add website');
+        }
+      } else {
+        // Handle text
+        const textContent = sourceInput.content as string;
+        formData.append('text', textContent);
+
+        const response = await fetch('/api/indexing/', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          const newSource: Source = {
+            id: data.source?.id?.toString() || Math.random().toString(36).substring(7),
+            name: data.source?.name || sourceInput.name,
+            type: data.source?.type || "TEXT",
+            size: `${Math.ceil(textContent.length / 1024)} KB`,
+            sourceType: "text",
+          };
+
+          setSources([...sources, newSource]);
+          setMessages([]); // Clear messages when new source is added
+          
+          toast({
+            title: "Source added",
+            description: `${newSource.name} has been indexed successfully. ${data.source?.documentsIndexed || 0} documents processed.`,
+          });
+        } else {
+          throw new Error(data.error || 'Failed to add text');
+        }
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Error adding source:', errorMessage);
+      toast({
+        title: "Error adding source",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
   };
-   const handleDeleteSource = (idToDelete: number) => {
-    // Filter out the source that needs to be deleted
-    setSources(currentSources =>
-      currentSources.filter(source => source.id !== idToDelete)
-    );
-    // Also clear the chat history, as the context has now changed
-    setMessages([]); 
+
+  const handleRemoveSource = (id: string) => {
+    setSources(sources.filter((s) => s.id !== id));
+    setMessages([]); // Clear messages when source is removed
+    toast({
+      title: "Source removed",
+      description: "The document has been removed from sources.",
+    });
   };
 
-  const handleSendMessage = async (question: string) => {
-    const userMessage: Message = { id: Date.now(), text: question, sender: 'user' };
-    setMessages(prev => [...prev, userMessage]);
-    setIsLoading(true);
+  const handleSendMessage = async (content: string) => {
+    if (sources.length === 0) {
+      toast({
+        title: "No sources available",
+        description: "Please upload documents before asking questions.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const userMessage: Message = {
+      id: Math.random().toString(36).substring(7),
+      role: "user",
+      content,
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setIsStreaming(true);
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, sources }),
+        body: JSON.stringify({ 
+          question: content, 
+          sources: sources.map(s => ({ 
+            id: s.id, 
+            name: s.name, 
+            type: s.type 
+          }))
+        }),
       });
 
       if (!response.ok) {
@@ -45,32 +182,73 @@ const NotebookLMPage: FC = () => {
       }
 
       const result = await response.json();
-      const aiMessage: Message = { id: Date.now() + 1, text: result.text, sender: 'ai' };
-      setMessages(prev => [...prev, aiMessage]);
+      
+      // Handle the response from your chat API
+      const responseText = result.response || result.text || "No response received.";
+      
+      // Simulate character-by-character streaming for better UX
+      let currentContent = "";
+      const assistantMessage: Message = {
+        id: Math.random().toString(36).substring(7),
+        role: "assistant",
+        content: "",
+      };
 
-    } catch (error: any) {
-      const errorMessage: Message = { id: Date.now() + 1, text: `Error: ${error.message}`, sender: 'ai' };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      // Stream the response character by character
+      for (let i = 0; i < responseText.length; i++) {
+        currentContent += responseText[i];
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessage.id
+              ? { ...msg, content: currentContent }
+              : msg
+          )
+        );
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const assistantMessage: Message = {
+        id: Math.random().toString(36).substring(7),
+        role: "assistant",
+        content: `Error: ${errorMessage}`,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
     } finally {
-      setIsLoading(false);
+      setIsStreaming(false);
     }
   };
 
   return (
-    <div className="bg-[#1e1f20] text-gray-300 font-sans min-h-screen flex flex-col">
-      <main className="flex-grow flex p-4 gap-4 overflow-hidden h-screen">
-        <SourcesPanel openModal={openModal} sources={sources} onDeleteSource={handleDeleteSource} />
-        <ChatPanel 
-          sources={sources} 
-          messages={messages}
-          isLoading={isLoading}
-          openModal={openModal}
-          onSendMessage={handleSendMessage}
+    <div className="h-screen flex overflow-hidden relative">
+      <div className="absolute top-4 right-4 z-10">
+        <ThemeToggle />
+      </div>
+      <div className="w-80 flex-shrink-0">
+        <SourcesPanel
+          sources={sources}
+          onAddSource={handleAddSource}
+          onRemoveSource={handleRemoveSource}
         />
-      </main>
-      <AddSourceModal isOpen={isModalOpen} onClose={closeModal} onAddSource={addSource} />
+      </div>
+      <div className="flex-1">
+        <ChatInterface
+          onSendMessage={handleSendMessage}
+          messages={messages}
+          isStreaming={isStreaming}
+        />
+      </div>
     </div>
   );
 };
 
-export default NotebookLMPage;
+export default Index;

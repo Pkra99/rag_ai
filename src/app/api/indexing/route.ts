@@ -1,90 +1,120 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from "next/server";
 import "dotenv/config";
-// 💡 No longer need 'path' or 'writeFile'
-// import path from "path";
-// import { writeFile } from 'fs/promises';
-
-import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
+import { WebPDFLoader } from "@langchain/community/document_loaders/web/pdf";
+import { CheerioWebBaseLoader } from "@langchain/community/document_loaders/web/cheerio";
+import { Document } from "@langchain/core/documents";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { QdrantVectorStore } from "@langchain/qdrant";
 
-export const maxDuration = 60;
+export const maxDuration = 60; // Prevent timeouts on Vercel
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    console.log("Indexing request received");
+    console.log("📄 Indexing request received");
 
-    // Check for required environment variables
-    if (!process.env.QDRANT_URL || !process.env.GOOGLE_GENERATIVE_AI_API_KEY || !process.env.QDRANT_KEY) {
+    // ✅ Ensure required environment variables exist
+    const { QDRANT_URL, QDRANT_KEY, GOOGLE_GENERATIVE_AI_API_KEY } = process.env;
+    if (!QDRANT_URL || !QDRANT_KEY || !GOOGLE_GENERATIVE_AI_API_KEY) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: "Required environment variables (QDRANT_URL, QDRANT_KEY, GOOGLE_GENERATIVE_AI_API_KEY) are not set." 
+        {
+          success: false,
+          error:
+            "Missing environment variables: QDRANT_URL, QDRANT_KEY, GOOGLE_GENERATIVE_AI_API_KEY",
         },
         { status: 500 }
       );
     }
 
+    // ✅ Parse multipart/form-data request
     const data = await req.formData();
     const file = data.get("file") as File | null;
+    const websiteUrl = (data.get("url") as string | null)?.trim();
+    const rawText = (data.get("text") as string | null)?.trim();
 
-    if (!file) {
+    if (!file && !websiteUrl && !rawText) {
       return NextResponse.json(
-        { success: false, error: "No file uploaded" },
+        {
+          success: false,
+          error: "Please upload a PDF, provide a URL, or enter text.",
+        },
         { status: 400 }
       );
     }
 
-    // ✅ CRITICAL FIX 1: Process the file in memory
-    // LangChain's PDFLoader can accept a Blob directly (a File is a type of Blob).
-    // This avoids saving to disk, preventing race conditions and issues with serverless filesystems.
-    console.log("Loading PDF from memory...");
-    const loader = new PDFLoader(file);
-    const docs = await loader.load();
+    let docs: Document[] = [];
 
-    console.log(`Loaded ${docs.length} pages from PDF`);
+    // ✅ Handle PDF Upload
+    if (file) {
+      console.log(`📥 Received PDF: ${file.name}`);
+      const loader = new WebPDFLoader(file, { splitPages: true });
+      const pdfDocs = await loader.load();
+      docs.push(...pdfDocs);
+      console.log(`✅ Loaded ${pdfDocs.length} pages from PDF`);
+    }
 
-    // ✅ CRITICAL FIX 2: Add metadata to each document
-    // This adds the filename to each chunk's metadata, allowing you to filter
-    // results for this specific document during the retrieval step.
-    docs.forEach(doc => {
-      doc.metadata = { ...doc.metadata, source: file.name };
-    });
+    // ✅ Handle Website URL
+    if (websiteUrl) {
+      console.log(`🌐 Fetching content from: ${websiteUrl}`);
+      const webLoader = new CheerioWebBaseLoader(websiteUrl);
+      const webDocs = await webLoader.load();
+      docs.push(...webDocs);
+      console.log(`✅ Extracted ${webDocs.length} web document(s)`);
+    }
 
+    // ✅ Handle Raw Text Input
+    if (rawText) {
+      console.log("📝 Processing direct text input");
+      const textDoc = new Document({
+        pageContent: rawText,
+        metadata: { source: "user_text" },
+      });
+      docs.push(textDoc);
+      console.log("✅ Text input added as document");
+    }
+
+    if (docs.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "No valid content found to index." },
+        { status: 400 }
+      );
+    }
+
+    // ✅ Initialize Google embeddings
     const embeddings = new GoogleGenerativeAIEmbeddings({
-      apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-      // 💡 Switched to `model` for consistency with latest library versions
+      apiKey: GOOGLE_GENERATIVE_AI_API_KEY,
       model: "text-embedding-004",
     });
 
-    console.log("Creating embeddings and storing in Qdrant...");
-
-    // Store documents in Qdrant. The metadata will be indexed alongside the vectors.
+    // ✅ Store embeddings in Qdrant
+    console.log("🚀 Generating embeddings and uploading to Qdrant...");
     await QdrantVectorStore.fromDocuments(docs, embeddings, {
-      url: process.env.QDRANT_URL,
-      apiKey: process.env.QDRANT_KEY,
+      url: QDRANT_URL,
+      apiKey: QDRANT_KEY,
       collectionName: "PDF_Indexing",
     });
 
-    console.log("Indexing completed successfully");
+    console.log("✅ Indexing completed successfully");
 
     return NextResponse.json(
       {
         success: true,
         source: {
           id: Date.now(),
-          name: file.name,
-          type: "Uploaded File",
-          // 💡 Changed to pages for clarity
-          pagesIndexed: docs.length,
+          name: file?.name || websiteUrl || "User Text",
+          type: file
+            ? "Uploaded PDF"
+            : websiteUrl
+            ? "Website URL"
+            : "Direct Text Input",
+          documentsIndexed: docs.length,
         },
       },
       { status: 200 }
     );
   } catch (error: any) {
-    console.error("Error in indexing route:", error);
+    console.error("❌ Error in indexing route:", error);
     return NextResponse.json(
-      { success: false, error: error.message || "Internal server error" },
+      { success: false, error: error.message ?? "Internal server error" },
       { status: 500 }
     );
   }
