@@ -1,7 +1,6 @@
 import { FileText, X, Globe, Type, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { AddSourceDialog, SourceInput } from "./AddSourceDialog";
 import { Badge } from "@/components/ui/badge";
 
@@ -20,7 +19,7 @@ interface SourcesPanelProps {
 }
 
 export function SourcesPanel({ sources, onAddSource, onRemoveSource }: SourcesPanelProps) {
-  const getSourceIcon = (sourceType: "file" | "url" | "text") => {
+  (sourceType: "file" | "url" | "text") => {
     switch (sourceType) {
       case "url":
         return <Globe className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;

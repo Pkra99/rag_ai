@@ -19,7 +19,6 @@ interface ChatInterfaceProps {
 
 export function ChatInterface({ messages, isStreaming, onSendMessage }: ChatInterfaceProps) {
   const [input, setInput] = useState("");
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when messages change

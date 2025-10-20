@@ -41,7 +41,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    let docs: Document[] = [];
+    const docs: Document[] = [];
 
     // ✅ Handle PDF Upload
     if (file) {
