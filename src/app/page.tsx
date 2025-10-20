@@ -178,7 +178,7 @@ const Index = () => {
     <div className="h-screen flex flex-col bg-background">
       {/* 🧭 Persistent Header */}
       <header className="flex items-center justify-between px-6 py-3 border-b bg-background/80 backdrop-blur-md sticky top-0 z-50">
-        <h1 className="text-lg font-semibold tracking-wide">Ponder Stream</h1>
+        <h1 className="text-lg font-semibold tracking-wide">RAGify</h1>
         <ThemeToggle />
       </header>
 

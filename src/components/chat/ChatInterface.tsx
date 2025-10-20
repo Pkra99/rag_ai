@@ -1,9 +1,8 @@
 'use client'
 import { useState, useEffect, useRef } from "react";
-import { Send } from "lucide-react";
+import { Send, Sparkles} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import ReactMarkdown from "react-markdown";
 
 interface Message {
@@ -51,10 +50,29 @@ export function ChatInterface({ messages, isStreaming, onSendMessage }: ChatInte
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto space-y-6">
           {messages.length === 0 ? (
-            <div className="text-center text-muted-foreground py-12">
-              <p className="text-lg font-medium mb-2">No messages yet</p>
-              <p className="text-sm">Upload some documents and start asking questions!</p>
+            <div className="h-full flex items-center justify-center text-center px-4 py-12">
+            <div className="max-w-lg space-y-6">
+              <div className="w-16 h-16 mx-auto bg-primary/10 rounded-2xl flex items-center justify-center">
+                <Sparkles className="w-8 h-8 text-primary" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-2xl font-semibold tracking-tight">Ready to assist</h2>
+                <p className="text-muted-foreground leading-relaxed">
+                  Upload your documents and start asking questions. I'll analyze your sources and provide detailed, contextual answers.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4">
+                <div className="p-4 border border-border rounded-lg bg-card">
+                  <p className="text-sm font-medium">📄 Multiple formats</p>
+                  <p className="text-xs text-muted-foreground mt-1">PDF, Markdown, Text, URLs</p>
+                </div>
+                <div className="p-4 border border-border rounded-lg bg-card">
+                  <p className="text-sm font-medium">💬 Smart responses</p>
+                  <p className="text-xs text-muted-foreground mt-1">Context-aware answers</p>
+                </div>
+              </div>
             </div>
+          </div>
           ) : (
             messages.map((message) => (
               <div
