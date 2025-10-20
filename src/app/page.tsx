@@ -1,5 +1,6 @@
-'use client'
-import { useState } from "react";
+'use client';
+
+import { useState, useEffect, useRef } from "react";
 import { SourcesPanel } from "@/components/sources/SourcesPanel";
 import { ChatInterface } from "@/components/chat/ChatInterface";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -26,21 +27,26 @@ const Index = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const { toast } = useToast();
 
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // 🧠 Auto-scroll chat to bottom on new message
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, [messages]);
+
+  // -------------------- SOURCE HANDLERS --------------------
   const handleAddSource = async (sourceInput: SourceInput) => {
     try {
-      // Create FormData for the unified indexing endpoint
       const formData = new FormData();
-
       if (sourceInput.type === "file" && sourceInput.content instanceof File) {
-        // Handle file upload
         const file = sourceInput.content;
-        formData.append('file', file);
-
-        const response = await fetch('/api/indexing/', {
-          method: 'POST',
-          body: formData,
-        });
-
+        formData.append("file", file);
+        const response = await fetch("/api/indexing", { method: "POST", body: formData });
         const data = await response.json();
 
         if (data.success) {
@@ -51,26 +57,16 @@ const Index = () => {
             size: `${(file.size / 1024).toFixed(1)} KB`,
             sourceType: "file",
           };
-
           setSources([...sources, newSource]);
-          setMessages([]); // Clear messages when new source is added
-          
+          setMessages([]);
           toast({
             title: "Source added",
-            description: `${newSource.name} has been indexed successfully. ${data.source?.documentsIndexed || 0} documents processed.`,
+            description: `${newSource.name} indexed successfully.`,
           });
-        } else {
-          throw new Error(data.error || 'Failed to upload file');
-        }
+        } else throw new Error(data.error || "File upload failed");
       } else if (sourceInput.type === "url") {
-        // Handle URL
-        formData.append('url', sourceInput.content as string);
-
-        const response = await fetch('/api/indexing/', {
-          method: 'POST',
-          body: formData,
-        });
-
+        formData.append("url", sourceInput.content as string);
+        const response = await fetch("/api/indexing", { method: "POST", body: formData });
         const data = await response.json();
 
         if (data.success) {
@@ -81,27 +77,17 @@ const Index = () => {
             size: "URL",
             sourceType: "url",
           };
-
           setSources([...sources, newSource]);
-          setMessages([]); // Clear messages when new source is added
-          
+          setMessages([]);
           toast({
             title: "Source added",
-            description: `${newSource.name} has been indexed successfully. ${data.source?.documentsIndexed || 0} documents processed.`,
+            description: `${newSource.name} indexed successfully.`,
           });
-        } else {
-          throw new Error(data.error || 'Failed to add website');
-        }
+        } else throw new Error(data.error || "Failed to add website");
       } else {
-        // Handle text
         const textContent = sourceInput.content as string;
-        formData.append('text', textContent);
-
-        const response = await fetch('/api/indexing/', {
-          method: 'POST',
-          body: formData,
-        });
-
+        formData.append("text", textContent);
+        const response = await fetch("/api/indexing", { method: "POST", body: formData });
         const data = await response.json();
 
         if (data.success) {
@@ -112,21 +98,16 @@ const Index = () => {
             size: `${Math.ceil(textContent.length / 1024)} KB`,
             sourceType: "text",
           };
-
           setSources([...sources, newSource]);
-          setMessages([]); // Clear messages when new source is added
-          
+          setMessages([]);
           toast({
             title: "Source added",
-            description: `${newSource.name} has been indexed successfully. ${data.source?.documentsIndexed || 0} documents processed.`,
+            description: `${newSource.name} indexed successfully.`,
           });
-        } else {
-          throw new Error(data.error || 'Failed to add text');
-        }
+        } else throw new Error(data.error || "Failed to add text");
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('Error adding source:', errorMessage);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
       toast({
         title: "Error adding source",
         description: errorMessage,
@@ -137,13 +118,11 @@ const Index = () => {
 
   const handleRemoveSource = (id: string) => {
     setSources(sources.filter((s) => s.id !== id));
-    setMessages([]); // Clear messages when source is removed
-    toast({
-      title: "Source removed",
-      description: "The document has been removed from sources.",
-    });
+    setMessages([]);
+    toast({ title: "Source removed", description: "Source has been removed." });
   };
 
+  // -------------------- CHAT HANDLER --------------------
   const handleSendMessage = async (content: string) => {
     if (sources.length === 0) {
       toast({
@@ -154,98 +133,73 @@ const Index = () => {
       return;
     }
 
-    const userMessage: Message = {
-      id: Math.random().toString(36).substring(7),
-      role: "user",
-      content,
-    };
-
+    const userMessage: Message = { id: crypto.randomUUID(), role: "user", content };
     setMessages((prev) => [...prev, userMessage]);
     setIsStreaming(true);
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          question: content, 
-          sources: sources.map(s => ({ 
-            id: s.id, 
-            name: s.name, 
-            type: s.type 
-          }))
-        }),
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: content, sources }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to get a response from the AI.");
-      }
-
       const result = await response.json();
-      
-      // Handle the response from your chat API
-      const responseText = result.response || result.text || "No response received.";
-      
-      // Simulate character-by-character streaming for better UX
-      let currentContent = "";
-      const assistantMessage: Message = {
-        id: Math.random().toString(36).substring(7),
-        role: "assistant",
-        content: "",
-      };
+      if (!response.ok) throw new Error(result.error || "Chat request failed.");
 
+      const responseText = result.response || "";
+      let currentContent = "";
+      const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", content: "" };
       setMessages((prev) => [...prev, assistantMessage]);
 
-      // Stream the response character by character
       for (let i = 0; i < responseText.length; i++) {
         currentContent += responseText[i];
         await new Promise((resolve) => setTimeout(resolve, 20));
-        
         setMessages((prev) =>
           prev.map((msg) =>
-            msg.id === assistantMessage.id
-              ? { ...msg, content: currentContent }
-              : msg
+            msg.id === assistantMessage.id ? { ...msg, content: currentContent } : msg
           )
         );
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const assistantMessage: Message = {
-        id: Math.random().toString(36).substring(7),
-        role: "assistant",
-        content: `Error: ${errorMessage}`,
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-      
-      toast({
-        title: "Error",
-        description: errorMessage,
-        variant: "destructive",
-      });
+      const errMsg = error instanceof Error ? error.message : "Unknown error";
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: "assistant", content: `Error: ${errMsg}` },
+      ]);
+      toast({ title: "Error", description: errMsg, variant: "destructive" });
     } finally {
       setIsStreaming(false);
     }
   };
 
+  // -------------------- UI --------------------
   return (
-    <div className="h-screen flex overflow-hidden relative">
-      <div className="absolute top-4 right-4 z-10">
+    <div className="h-screen flex flex-col bg-background">
+      {/* 🧭 Persistent Header */}
+      <header className="flex items-center justify-between px-6 py-3 border-b bg-background/80 backdrop-blur-md sticky top-0 z-50">
+        <h1 className="text-lg font-semibold tracking-wide">Ponder Stream</h1>
         <ThemeToggle />
-      </div>
-      <div className="w-80 flex-shrink-0">
-        <SourcesPanel
-          sources={sources}
-          onAddSource={handleAddSource}
-          onRemoveSource={handleRemoveSource}
-        />
-      </div>
-      <div className="flex-1">
-        <ChatInterface
-          onSendMessage={handleSendMessage}
-          messages={messages}
-          isStreaming={isStreaming}
-        />
+      </header>
+
+      <div className="flex flex-1 overflow-hidden">
+        <aside className="w-80 flex-shrink-0 border-r h-full overflow-hidden">
+          <SourcesPanel
+            sources={sources}
+            onAddSource={handleAddSource}
+            onRemoveSource={handleRemoveSource}
+          />
+        </aside>
+
+        <main className="flex-1 flex flex-col h-full overflow-hidden">
+          <div ref={chatContainerRef} className="flex-1 overflow-y-auto">
+            <ChatInterface
+              onSendMessage={handleSendMessage}
+              messages={messages}
+              isStreaming={isStreaming}
+            />
+          </div>
+        </main>
       </div>
     </div>
   );

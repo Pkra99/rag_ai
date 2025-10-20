@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import "dotenv/config";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { QdrantVectorStore } from "@langchain/qdrant";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Agent, run } from "@openai/agents";
 import { aisdk } from "@openai/agents-extensions";
 import { google } from "@ai-sdk/google";
@@ -73,10 +72,10 @@ ${context}
     const prompt = `${SYSTEM_PROMPT}\n\nUser Question: ${question}`;
 
     const result = await run(agent, prompt);
-    const response = result.output;
-    // const text = response.toString;
-
+    const response = result.finalOutput;
+    console.log("Ai response: ",response)
     return NextResponse.json({ response });
+
   } catch (error: any) {
     console.error("Error in chat route:", error);
     return NextResponse.json(
