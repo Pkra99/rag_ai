@@ -19,16 +19,16 @@ interface SourcesPanelProps {
 }
 
 export function SourcesPanel({ sources, onAddSource, onRemoveSource }: SourcesPanelProps) {
-  (sourceType: "file" | "url" | "text") => {
-    switch (sourceType) {
-      case "url":
-        return <Globe className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;
-      case "text":
-        return <Type className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;
-      default:
-        return <FileText className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;
-    }
-  };
+  // const getSourceIcon = (sourceType: "file" | "url" | "text") => {
+  //   switch (sourceType) {
+  //     case "url":
+  //       return <Globe className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;
+  //     case "text":
+  //       return <Type className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;
+  //     default:
+  //       return <FileText className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;
+  //   }
+  // };
 
   return (
     <div className="h-full flex flex-col bg-card/30 backdrop-blur-sm border-r border-border">
