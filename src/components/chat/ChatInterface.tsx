@@ -57,7 +57,7 @@ export function ChatInterface({ messages, isStreaming, onSendMessage }: ChatInte
               <div className="space-y-2">
                 <h2 className="text-2xl font-semibold tracking-tight">Ready to assist</h2>
                 <p className="text-muted-foreground leading-relaxed">
-                  Upload your documents and start asking questions. I'll analyze your sources and provide detailed, contextual answers.
+                  Upload your documents and start asking questions. I&apos;ll analyze your sources and provide detailed, contextual answers.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4">
