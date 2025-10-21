@@ -1,3 +1,4 @@
+// Updated: app/page.tsx
 'use client';
 
 import { useState, useEffect, useRef } from "react";
@@ -19,6 +20,7 @@ interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  isLoading?: boolean;
 }
 
 const Index = () => {
@@ -134,7 +136,13 @@ const Index = () => {
     }
 
     const userMessage: Message = { id: crypto.randomUUID(), role: "user", content };
-    setMessages((prev) => [...prev, userMessage]);
+    const loadingMessage: Message = { 
+      id: crypto.randomUUID(), 
+      role: "assistant", 
+      content: "", 
+      isLoading: true 
+    };
+    setMessages((prev) => [...prev, userMessage, loadingMessage]);
     setIsStreaming(true);
 
     try {
@@ -147,11 +155,15 @@ const Index = () => {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Chat request failed.");
 
+      // Remove loading message
+      setMessages((prev) => prev.filter((msg) => msg.id !== loadingMessage.id));
+
       const responseText = result.response || "";
-      let currentContent = "";
       const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", content: "" };
       setMessages((prev) => [...prev, assistantMessage]);
 
+      // Simulate streaming
+      let currentContent = "";
       for (let i = 0; i < responseText.length; i++) {
         currentContent += responseText[i];
         await new Promise((resolve) => setTimeout(resolve, 20));
@@ -162,11 +174,15 @@ const Index = () => {
         );
       }
     } catch (error) {
+      // Remove loading message on error
+      setMessages((prev) => prev.filter((msg) => msg.id !== loadingMessage.id));
       const errMsg = error instanceof Error ? error.message : "Unknown error";
-      setMessages((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), role: "assistant", content: `Error: ${errMsg}` },
-      ]);
+      const errorMessage: Message = { 
+        id: crypto.randomUUID(), 
+        role: "assistant", 
+        content: `Error: ${errMsg}` 
+      };
+      setMessages((prev) => [...prev, errorMessage]);
       toast({ title: "Error", description: errMsg, variant: "destructive" });
     } finally {
       setIsStreaming(false);

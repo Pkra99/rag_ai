@@ -1,14 +1,17 @@
+// Updated: components/chat/ChatInterface.tsx
 'use client'
 import { useState, useEffect, useRef } from "react";
-import { Send, Sparkles} from "lucide-react";
+import { Send, Sparkles, Loader } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import ReactMarkdown from "react-markdown";
+import React from "react";
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  isLoading?: boolean;
 }
 
 interface ChatInterfaceProps {
@@ -43,6 +46,43 @@ export function ChatInterface({ messages, isStreaming, onSendMessage }: ChatInte
     }
   };
 
+  const renderMessage = (message: Message) => {
+    if (message.isLoading) {
+      return (
+        <div className="flex justify-start">
+          <div className="max-w-[80%] rounded-lg px-4 py-3 bg-muted flex items-center gap-2">
+            <Loader className="w-4 h-4 animate-spin text-primary" />
+            <span className="text-sm text-muted-foreground">Retrieving relevant documents and thinking...</span>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className={`flex ${
+          message.role === "user" ? "justify-end" : "justify-start"
+        }`}
+      >
+        <div
+          className={`max-w-[80%] rounded-lg px-4 py-3 ${
+            message.role === "user"
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted"
+          }`}
+        >
+          {message.role === "assistant" ? (
+            <div className="prose prose-sm dark:prose-invert max-w-none">
+              <ReactMarkdown>{message.content}</ReactMarkdown>
+            </div>
+          ) : (
+            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full bg-background overflow-hidden">
       {/* Messages Area */}
@@ -74,28 +114,9 @@ export function ChatInterface({ messages, isStreaming, onSendMessage }: ChatInte
           </div>
           ) : (
             messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${
-                  message.role === "user" ? "justify-end" : "justify-start"
-                }`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                    message.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
-                  }`}
-                >
-                  {message.role === "assistant" ? (
-                    <div className="prose prose-sm dark:prose-invert max-w-none">
-                      <ReactMarkdown>{message.content}</ReactMarkdown>
-                    </div>
-                  ) : (
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                  )}
-                </div>
-              </div>
+              <React.Fragment key={message.id}>
+                {renderMessage(message)}
+              </React.Fragment>
             ))
           )}
           {/* Scroll anchor */}
