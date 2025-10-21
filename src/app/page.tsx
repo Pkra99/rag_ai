@@ -30,6 +30,8 @@ const Index = () => {
   const { toast } = useToast();
 
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const isCancelledRef = useRef(false);
 
   // 🧠 Auto-scroll chat to bottom on new message
   useEffect(() => {
@@ -40,6 +42,14 @@ const Index = () => {
       });
     }
   }, [messages]);
+
+  const stopStreaming = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    isCancelledRef.current = true;
+    setIsStreaming(false);
+  };
 
   // -------------------- SOURCE HANDLERS --------------------
   const handleAddSource = async (sourceInput: SourceInput) => {
@@ -144,12 +154,15 @@ const Index = () => {
     };
     setMessages((prev) => [...prev, userMessage, loadingMessage]);
     setIsStreaming(true);
+    abortControllerRef.current = new AbortController();
+    isCancelledRef.current = false;
 
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: content, sources }),
+        signal: abortControllerRef.current.signal,
       });
 
       const result = await response.json();
@@ -165,6 +178,15 @@ const Index = () => {
       // Simulate streaming
       let currentContent = "";
       for (let i = 0; i < responseText.length; i++) {
+        if (isCancelledRef.current) {
+          // Truncate the content to current state
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMessage.id ? { ...msg, content: currentContent } : msg
+            )
+          );
+          break;
+        }
         currentContent += responseText[i];
         await new Promise((resolve) => setTimeout(resolve, 20));
         setMessages((prev) =>
@@ -173,19 +195,29 @@ const Index = () => {
           )
         );
       }
-    } catch (error) {
-      // Remove loading message on error
-      setMessages((prev) => prev.filter((msg) => msg.id !== loadingMessage.id));
-      const errMsg = error instanceof Error ? error.message : "Unknown error";
-      const errorMessage: Message = { 
-        id: crypto.randomUUID(), 
-        role: "assistant", 
-        content: `Error: ${errMsg}` 
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-      toast({ title: "Error", description: errMsg, variant: "destructive" });
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        // Remove loading message on abort
+        setMessages((prev) => prev.filter((msg) => msg.id !== loadingMessage.id));
+        toast({
+          title: "Stopped",
+          description: "Response generation stopped.",
+        });
+      } else {
+        // Remove loading message on other errors
+        setMessages((prev) => prev.filter((msg) => msg.id !== loadingMessage.id));
+        const errMsg = error instanceof Error ? error.message : "Unknown error";
+        const errorMessage: Message = { 
+          id: crypto.randomUUID(), 
+          role: "assistant", 
+          content: `Error: ${errMsg}` 
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+        toast({ title: "Error", description: errMsg, variant: "destructive" });
+      }
     } finally {
       setIsStreaming(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -213,6 +245,7 @@ const Index = () => {
               onSendMessage={handleSendMessage}
               messages={messages}
               isStreaming={isStreaming}
+              onStop={stopStreaming}
             />
           </div>
         </main>

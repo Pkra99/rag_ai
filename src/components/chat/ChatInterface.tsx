@@ -1,7 +1,7 @@
 // Updated: components/chat/ChatInterface.tsx
 'use client'
 import { useState, useEffect, useRef } from "react";
-import { Send, Sparkles, Loader } from "lucide-react";
+import { Send, Sparkles, Loader, StopCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import ReactMarkdown from "react-markdown";
@@ -18,9 +18,10 @@ interface ChatInterfaceProps {
   messages: Message[];
   isStreaming: boolean;
   onSendMessage: (message: string) => void;
+  onStop?: () => void;
 }
 
-export function ChatInterface({ messages, isStreaming, onSendMessage }: ChatInterfaceProps) {
+export function ChatInterface({ messages, isStreaming, onSendMessage, onStop }: ChatInterfaceProps) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -43,6 +44,16 @@ export function ChatInterface({ messages, isStreaming, onSendMessage }: ChatInte
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
+    }
+  };
+
+  const handleButtonClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (isStreaming && onStop) {
+      onStop();
+    } else if (input.trim()) {
+      onSendMessage(input.trim());
+      setInput("");
     }
   };
 
@@ -72,8 +83,13 @@ export function ChatInterface({ messages, isStreaming, onSendMessage }: ChatInte
           }`}
         >
           {message.role === "assistant" ? (
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown>{message.content}</ReactMarkdown>
+            <div className="prose prose-sm dark:prose-invert max-w-none flex items-start">
+              <div className="flex-1">
+                <ReactMarkdown>{message.content}</ReactMarkdown>
+              </div>
+              {isStreaming && (
+                <span className="inline-block w-1.5 h-4 ml-1 bg-primary animate-pulse rounded-sm flex-shrink-0" />
+              )}
             </div>
           ) : (
             <p className="text-sm whitespace-pre-wrap">{message.content}</p>
@@ -137,12 +153,17 @@ export function ChatInterface({ messages, isStreaming, onSendMessage }: ChatInte
               disabled={isStreaming}
             />
             <Button
-              type="submit"
+              type={isStreaming ? "button" : "submit"}
               size="icon"
               className="h-[60px] w-[60px] shrink-0"
-              disabled={!input.trim() || isStreaming}
+              onClick={handleButtonClick}
+              disabled={!input.trim() && !isStreaming}
             >
-              <Send className="h-5 w-5" />
+              {isStreaming ? (
+                <StopCircle className="h-5 w-5 text-destructive hover:text-destructive" />
+              ) : (
+                <Send className="h-5 w-5" />
+              )}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
