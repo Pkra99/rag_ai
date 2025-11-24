@@ -372,9 +372,11 @@ const Index = () => {
             <Coins className="w-4 h-4 text-primary" />
             <span className="text-sm font-medium text-primary">{tokens} tokens left</span>
           </div>
-          <Button variant="ghost" size="icon" onClick={handleResetSession} title="Reset Session">
-            <RotateCcw className="w-4 h-4" />
-          </Button>
+          {process.env.NODE_ENV === 'development' && (
+            <Button variant="ghost" size="icon" onClick={handleResetSession} title="Reset Session (Dev Only)">
+              <RotateCcw className="w-4 h-4" />
+            </Button>
+          )}
           <ThemeToggle />
         </div>
       </header>
