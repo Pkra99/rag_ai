@@ -5,11 +5,12 @@ import { CheerioWebBaseLoader } from "@langchain/community/document_loaders/web/
 import { Document } from "@langchain/core/documents";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { QdrantVectorStore } from "@langchain/qdrant";
+import { addSessionFile, FileMetadata, removeSessionFile } from "@/lib/redis";
 
 export const maxDuration = 60; // Prevent timeouts on Vercel
 
 // Unified file handling function
-async function handleFileUpload(file: File | null, docs: Document[]) {
+async function handleFileUpload(file: File | null, docs: Document[], sessionId: string) {
   if (!file) return { words: 0, pages: 1, type: "" };
 
   const extension = file.name.toLowerCase().split(".").pop() || "";
@@ -27,13 +28,13 @@ async function handleFileUpload(file: File | null, docs: Document[]) {
         const pdfDocs = await loader.load();
 
         totalPages = pdfDocs.length;
-        
+
         // Calculate total words across all pages
         totalWords = pdfDocs.reduce(
           (sum, doc) => sum + (doc.pageContent.split(/\s+/).filter(w => w.length > 0).length),
           0
         );
-        
+
         fileType = "pdf";
 
         // Enrich metadata for each page
@@ -45,6 +46,7 @@ async function handleFileUpload(file: File | null, docs: Document[]) {
             page: index + 1,
             totalPages,
             size: `${(file.size / 1024).toFixed(1)} KB`,
+            tenant_id: sessionId,
           };
         });
 
@@ -68,6 +70,7 @@ async function handleFileUpload(file: File | null, docs: Document[]) {
             source: file.name,
             type: fileType,
             size: `${(file.size / 1024).toFixed(1)} KB`,
+            tenant_id: sessionId,
           },
         });
 
@@ -95,6 +98,20 @@ async function handleFileUpload(file: File | null, docs: Document[]) {
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     console.log("📄 Indexing request received");
+
+    // Debug logging
+    const headerSessionId = req.headers.get("x-session-id");
+    const urlSessionId = req.nextUrl.searchParams.get("sessionId");
+
+    console.log("🔍 Headers:", Object.fromEntries(req.headers.entries()));
+    console.log("🔍 x-session-id:", headerSessionId);
+    console.log("🔍 Query sessionId:", urlSessionId);
+
+    const sessionId = headerSessionId || urlSessionId || "default-session";
+    if (!sessionId) {
+      // This block is now unreachable but kept for safety structure
+      console.warn("⚠️ Session ID missing, using default.");
+    }
 
     // ✅ Ensure required environment variables exist
     const { QDRANT_URL, QDRANT_KEY, GOOGLE_GENERATIVE_AI_API_KEY } =
@@ -131,7 +148,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // ✅ Unified file handling
     let fileMetrics = { words: 0, pages: 1, type: "" };
     if (file) {
-      fileMetrics = await handleFileUpload(file, docs);
+      fileMetrics = await handleFileUpload(file, docs, sessionId);
     }
 
     // ✅ Handle Website URL
@@ -166,6 +183,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           type: "web",
           title: doc.metadata.title || new URL(websiteUrl).hostname,
           section: `Section ${index + 1}`,
+          tenant_id: sessionId,
         };
       });
 
@@ -181,7 +199,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       console.log("📝 Processing direct text input");
       const textDoc = new Document({
         pageContent: rawText,
-        metadata: { source: "user_text", type: "text" },
+        metadata: { source: "user_text", type: "text", tenant_id: sessionId },
       });
       docs.push(textDoc);
       console.log("✅ Text input added as document");
@@ -211,34 +229,48 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.log("✅ Indexing completed successfully");
 
     // ✅ Unified success response
-    let sourceType = "";
+    let sourceType: "file" | "url" | "text" = "text";
     let extractedWords = 0;
     let extractedPages: number | undefined = undefined;
+    let sourceName = "";
+    let sourceSize = "";
 
     if (file) {
-      sourceType =
-        fileMetrics.type === "pdf"
-          ? "PDF File"
-          : fileMetrics.type === "markdown"
-          ? "Markdown File"
-          : "Text File";
+      sourceType = "file";
       extractedWords = fileMetrics.words;
       if (fileMetrics.type === "pdf") extractedPages = fileMetrics.pages;
+      sourceName = file.name;
+      sourceSize = `${(file.size / 1024).toFixed(1)} KB`;
     } else if (websiteUrl) {
-      sourceType = "Website URL";
+      sourceType = "url";
       extractedWords = webMetrics.words;
+      sourceName = websiteUrl;
+      sourceSize = "URL";
     } else {
-      sourceType = "Direct Text Input";
+      sourceType = "text";
       extractedWords = rawText ? rawText.split(/\s+/).filter(w => w.length > 0).length : 0;
+      sourceName = "User Text";
+      sourceSize = `${Math.ceil((rawText?.length || 0) / 1024)} KB`;
     }
+
+    // Store in Redis
+    const newSource: FileMetadata = {
+      id: Date.now().toString(),
+      name: sourceName,
+      type: fileMetrics.type || (sourceType === "url" ? "WEBSITE" : "TEXT"),
+      size: sourceSize,
+      sourceType: sourceType,
+      uploadedAt: Date.now(),
+    };
+    await addSessionFile(sessionId, newSource);
 
     return NextResponse.json(
       {
         success: true,
         source: {
-          id: Date.now(),
-          name: file?.name || websiteUrl || "User Text",
-          type: sourceType,
+          id: newSource.id,
+          name: newSource.name,
+          type: newSource.type,
           documentsIndexed: docs.length,
           extractedWords,
           extractedPages,
@@ -250,6 +282,96 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error("❌ Error in indexing route:", error);
     return NextResponse.json(
       { success: false, error: error.message ?? "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest): Promise<NextResponse> {
+  try {
+    const { searchParams } = new URL(req.url);
+    const fileName = searchParams.get("fileName");
+
+    if (!fileName) {
+      return NextResponse.json(
+        { success: false, error: "fileName required" },
+        { status: 400 }
+      );
+    }
+
+    console.log(`\n🗑️  DELETE REQUEST for: "${fileName}"`);
+
+    const { QDRANT_URL, QDRANT_KEY } = process.env;
+    if (!QDRANT_URL || !QDRANT_KEY) {
+      return NextResponse.json(
+        { success: false, error: "Qdrant not configured" },
+        { status: 500 }
+      );
+    }
+
+    const { QdrantClient } = await import("@qdrant/js-client-rest");
+    const client = new QdrantClient({ url: QDRANT_URL, apiKey: QDRANT_KEY });
+
+    // Get ALL points from collection with payload
+    console.log("📥 Fetching all points from Qdrant...");
+    const result = await client.scroll("PDF_Indexing", {
+      limit: 1000,
+      with_payload: true,
+      with_vector: false,
+    });
+
+    console.log(`📊 Retrieved ${result.points.length} total points`);
+
+    // Find matching points (LangChain stores metadata under payload.metadata)
+    const toDelete: string[] = [];
+
+    result.points.forEach((point: any) => {
+      // LangChain Qdrant store uses nested metadata
+      const pointSource = point.payload?.metadata?.source || point.payload?.source;
+      if (pointSource === fileName) {
+        toDelete.push(point.id);
+        console.log(`✓ Match found: ID ${point.id}, source: "${pointSource}"`);
+      }
+    });
+
+    console.log(`\n🎯 Found ${toDelete.length} points to delete`);
+
+    if (toDelete.length === 0) {
+      console.log(`\n⚠️  No matches found. Debugging first point:`);
+      if (result.points.length > 0) {
+        const firstPoint = result.points[0];
+        console.log(`   payload.source: "${firstPoint.payload?.source}"`);
+        console.log(`   payload.metadata.source: "${firstPoint.payload?.metadata?.source}"`);
+        console.log(`   Full payload keys:`, Object.keys(firstPoint.payload || {}));
+      }
+
+      return NextResponse.json({
+        success: true,
+        deleted: 0,
+        message: `No embeddings found for "${fileName}"`,
+      });
+    }
+
+    // Delete points by ID
+    console.log(`\n🔥 Deleting ${toDelete.length} points from Qdrant...`);
+    await client.delete("PDF_Indexing", { points: toDelete });
+
+    // Also remove from Redis file list
+    const sessionId = req.headers.get("x-session-id") || searchParams.get("sessionId") || "default-session";
+    await removeSessionFile(sessionId, fileName);
+
+    console.log(`✅ Successfully deleted ${toDelete.length} embeddings and removed from Redis\n`);
+
+    return NextResponse.json({
+      success: true,
+      deleted: toDelete.length,
+      message: `Deleted ${toDelete.length} embeddings for "${fileName}"`,
+    });
+
+  } catch (error: any) {
+    console.error("\n❌ DELETE ERROR:", error.message);
+    return NextResponse.json(
+      { success: false, error: error.message },
       { status: 500 }
     );
   }

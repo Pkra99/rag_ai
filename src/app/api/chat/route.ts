@@ -2,21 +2,36 @@ import { NextRequest, NextResponse } from 'next/server';
 import "dotenv/config";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { QdrantVectorStore } from "@langchain/qdrant";
-import { Agent, run } from "@openai/agents";
-import { aisdk } from "@openai/agents-extensions";
 import { google } from "@ai-sdk/google";
-
-// Initialize Gemini client
-//const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
-
+import { streamText } from "ai";
+import { getSessionTokens, decrementSessionTokens } from "@/lib/redis";
 
 export async function POST(req: NextRequest) {
   try {
     const { question, sources } = await req.json();
+    const sessionId = req.headers.get("x-session-id") || "default-session";
+
+    /* 
+    if (!sessionId) {
+      return NextResponse.json({ error: "Session ID required" }, { status: 400 });
+    } 
+    */
 
     if (!question || !sources || sources.length === 0) {
       return NextResponse.json({ error: "Missing question or sources" }, { status: 400 });
     }
+
+    // 🛑 Check Token Limit
+    const tokens = await getSessionTokens(sessionId);
+    if (tokens <= 0) {
+      return NextResponse.json(
+        { error: "Daily limit reached. Please try again tomorrow.", tokens: 0 },
+        { status: 429 }
+      );
+    }
+
+    // 📉 Decrement Token
+    const remainingTokens = await decrementSessionTokens(sessionId);
 
     if (!process.env.QDRANT_URL || !process.env.QDRANT_KEY) {
       return NextResponse.json({ error: "Qdrant environment variables not set" }, { status: 500 });
@@ -38,8 +53,20 @@ export async function POST(req: NextRequest) {
       collectionName: "PDF_Indexing",
     });
 
+    // Temporarily removing filter due to Qdrant compatibility issues
     const vectorRetriever = vectorStore.asRetriever({
       k: 4,
+      // TODO: Fix filter syntax for tenant_id
+      // filter: {
+      //   must: [
+      //     {
+      //       key: "tenant_id",
+      //       match: {
+      //         value: sessionId,
+      //       },
+      //     },
+      //   ],
+      // },
     });
 
     const relevantChunks = await vectorRetriever.invoke(question);
@@ -59,25 +86,45 @@ Context:
 ${context}
 `;
 
-    // Use Gemini model for chat completion
-    const model = aisdk(google("gemini-2.5-flash"))
+    console.log("📤 Streaming response with Gemini...");
+    
+    // Stream the text
+    const result = streamText({
+      model: google("gemini-2.0-flash-lite"),
+      system: SYSTEM_PROMPT,
+      prompt: `User Question: ${question}`,
+    });
 
-    const agent = new Agent({
-      name: "RAG-Agent",
-      model,
-      instructions: SYSTEM_PROMPT,
-    })
+    // Create a custom stream that processes tokens slowly
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of result.textStream) {
+            controller.enqueue(encoder.encode(chunk));
+            // Slower delay for visible typewriter effect
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+    });
 
-    // Combine system prompt and user question for Gemini
-    const prompt = `${SYSTEM_PROMPT}\n\nUser Question: ${question}`;
-
-    const result = await run(agent, prompt);
-    const response = result.finalOutput;
-    console.log("Ai response: ",response)
-    return NextResponse.json({ response });
+    // Return custom stream with headers
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "x-remaining-tokens": remainingTokens.toString(),
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+      },
+    });
 
   } catch (error: any) {
-    console.error("Error in chat route:", error);
+    console.error("❌ Error in chat route:", error);
+    console.error("Error details:", error.stack);
     return NextResponse.json(
       { error: error.message || "Internal server error" },
       { status: 500 }
