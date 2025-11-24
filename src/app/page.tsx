@@ -239,13 +239,13 @@ const Index = () => {
     }
   };
 
-  // -------------------- CHAT HANDLER --------------------
   const handleSendMessage = async (content: string) => {
     if (tokens <= 0) {
       toast({
-        title: "Daily limit reached",
-        description: "You have used all your free questions for today.",
+        title: "🚫 Daily limit reached",
+        description: "You've used all 10 free questions. Please come back tomorrow!",
         variant: "destructive",
+        duration: 10000, // Show for 10 seconds
       });
       return;
     }
@@ -368,6 +368,11 @@ const Index = () => {
           <span className="text-xs text-muted-foreground px-2 py-0.5 bg-muted rounded-full">v1.0</span>
         </div>
         <div className="flex items-center gap-4">
+          {tokens === 0 && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive/10 rounded-full border border-destructive/20">
+              <span className="text-sm font-medium text-destructive">⚠️ Daily limit reached - Come back tomorrow!</span>
+            </div>
+          )}
           <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-full border border-primary/20">
             <Coins className="w-4 h-4 text-primary" />
             <span className="text-sm font-medium text-primary">{tokens} tokens left</span>
