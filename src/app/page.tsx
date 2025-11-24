@@ -7,8 +7,9 @@ import { ChatInterface } from "@/components/chat/ChatInterface";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useToast } from "@/hooks/use-toast";
 import { SourceInput } from "@/components/sources/AddSourceDialog";
-import { Coins, RotateCcw } from "lucide-react";
+import { Coins, RotateCcw, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 interface Source {
   id: string;
@@ -28,6 +29,7 @@ interface Message {
 const Index = () => {
   const [sources, setSources] = useState<Source[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [sessionId, setSessionId] = useState<string>("");
   const [tokens, setTokens] = useState<number>(10);
@@ -362,23 +364,49 @@ const Index = () => {
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* 🧭 Persistent Header */}
-      <header className="flex items-center justify-between px-6 py-3 border-b bg-background/80 backdrop-blur-md sticky top-0 z-50">
-        <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold tracking-wide">RAGify</h1>
-          <span className="text-xs text-muted-foreground px-2 py-0.5 bg-muted rounded-full">v1.0</span>
+      <header className="flex items-center justify-between px-3 md:px-6 py-2 md:py-3 border-b bg-background/80 backdrop-blur-md sticky top-0 z-50">
+        <div className="flex items-center gap-1.5 md:gap-2">
+          {/* Hamburger Menu - Mobile Only */}
+          <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+            <SheetTrigger asChild className="md:hidden">
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <Menu className="w-4 h-4" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-80 p-0">
+              <SheetHeader className="px-4 pt-4 pb-2 border-b">
+                <SheetTitle>Your Sources</SheetTitle>
+              </SheetHeader>
+              <SourcesPanel
+                sources={sources}
+                onAddSource={(input) => {
+                  handleAddSource(input);
+                  setMobileMenuOpen(false);
+                }}
+                onRemoveSource={handleRemoveSource}
+              />
+            </SheetContent>
+          </Sheet>
+
+          <h1 className="text-base md:text-lg font-semibold tracking-wide">RAGify</h1>
+          <span className="hidden sm:inline text-xs text-muted-foreground px-2 py-0.5 bg-muted rounded-full">v1.0</span>
         </div>
-        <div className="flex items-center gap-4">
+
+        <div className="flex items-center gap-1.5 md:gap-4">
+          {/* Warning - Hidden on small mobile */}
           {tokens === 0 && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-destructive/10 rounded-full border border-destructive/20">
-              <span className="text-sm font-medium text-destructive">⚠️ Daily limit reached - Come back tomorrow!</span>
+            <div className="hidden sm:flex items-center gap-2 px-2 md:px-3 py-1 md:py-1.5 bg-destructive/10 rounded-full border border-destructive/20">
+              <span className="text-xs md:text-sm font-medium text-destructive">⚠️ Limit reached</span>
             </div>
           )}
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-full border border-primary/20">
-            <Coins className="w-4 h-4 text-primary" />
-            <span className="text-sm font-medium text-primary">{tokens} tokens left</span>
+          {/* Tokens */}
+          <div className="flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 bg-primary/10 rounded-full border border-primary/20">
+            <Coins className="w-3 h-3 md:w-4 md:h-4 text-primary" />
+            <span className="text-xs md:text-sm font-medium text-primary">{tokens}</span>
           </div>
+          {/* Reset (Dev Only) */}
           {process.env.NODE_ENV === 'development' && (
-            <Button variant="ghost" size="icon" onClick={handleResetSession} title="Reset Session (Dev Only)">
+            <Button variant="ghost" size="icon" className="hidden md:flex" onClick={handleResetSession} title="Reset Session (Dev Only)">
               <RotateCcw className="w-4 h-4" />
             </Button>
           )}
@@ -387,7 +415,8 @@ const Index = () => {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-80 flex-shrink-0 border-r h-full overflow-hidden">
+        {/* Desktop Sidebar */}
+        <aside className="hidden md:block w-80 flex-shrink-0 border-r h-full overflow-hidden">
           <SourcesPanel
             sources={sources}
             onAddSource={handleAddSource}
@@ -395,6 +424,7 @@ const Index = () => {
           />
         </aside>
 
+        {/* Main Content */}
         <main className="flex-1 flex flex-col h-full overflow-hidden">
           <div ref={chatContainerRef} className="flex-1 overflow-y-auto">
             <ChatInterface
