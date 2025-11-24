@@ -339,7 +339,7 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
     if (toDelete.length === 0) {
       console.log(`\n⚠️  No matches found. Debugging first point:`);
       if (result.points.length > 0) {
-        const firstPoint = result.points[0];
+        const firstPoint = result.points[0] as any;
         console.log(`   payload.source: "${firstPoint.payload?.source}"`);
         console.log(`   payload.metadata.source: "${firstPoint.payload?.metadata?.source}"`);
         console.log(`   Full payload keys:`, Object.keys(firstPoint.payload || {}));
