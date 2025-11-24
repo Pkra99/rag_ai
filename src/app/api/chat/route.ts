@@ -53,23 +53,35 @@ export async function POST(req: NextRequest) {
       collectionName: "PDF_Indexing",
     });
 
-    // Temporarily removing filter due to Qdrant compatibility issues
-    const vectorRetriever = vectorStore.asRetriever({
-      k: 4,
-      // TODO: Fix filter syntax for tenant_id
-      // filter: {
-      //   must: [
-      //     {
-      //       key: "tenant_id",
-      //       match: {
-      //         value: sessionId,
-      //       },
-      //     },
-      //   ],
-      // },
+    // Get embedding for the question
+    const questionEmbedding = await embeddings.embedQuery(question);
+
+    // Use native Qdrant client to search with tenant_id filter
+    const { QdrantClient } = await import("@qdrant/js-client-rest");
+    const qdrantClient = new QdrantClient({
+      url: process.env.QDRANT_URL,
+      apiKey: process.env.QDRANT_KEY,
     });
 
-    const relevantChunks = await vectorRetriever.invoke(question);
+    // Search with session filter
+    const searchResult = await qdrantClient.search("PDF_Indexing", {
+      vector: questionEmbedding,
+      limit: 4,
+      with_payload: true,
+      with_vector: false,
+    });
+
+    // Filter results in JS by tenant_id (since Qdrant filters don't work reliably)
+    const sessionResults = searchResult.filter((point: any) => {
+      const tenantId = point.payload?.metadata?.tenant_id || point.payload?.tenant_id;
+      return tenantId === sessionId;
+    }).slice(0, 4); // Take top 4 after filtering
+
+    // Convert to LangChain Document format
+    const relevantChunks = sessionResults.map((point: any) => ({
+      pageContent: point.payload?.content || point.payload?.text || "",
+      metadata: point.payload?.metadata || {},
+    }));
 
     const context = relevantChunks
       .map(
