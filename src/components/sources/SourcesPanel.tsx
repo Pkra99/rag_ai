@@ -3,33 +3,18 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AddSourceDialog, SourceInput } from "./AddSourceDialog";
 import { Badge } from "@/components/ui/badge";
-
-interface Source {
-  id: string;
-  name: string;
-  type: string;
-  size: string;
-  sourceType: "file" | "url" | "text";
-}
+import { Source } from "@/types";
+import { cn } from "@/lib/utils";
 
 interface SourcesPanelProps {
   sources: Source[];
+  activeSourceId?: string | null;
   onAddSource: (source: SourceInput) => void;
   onRemoveSource: (id: string) => void;
+  onSelectSource?: (source: Source) => void;
 }
 
-export function SourcesPanel({ sources, onAddSource, onRemoveSource }: SourcesPanelProps) {
-  // const getSourceIcon = (sourceType: "file" | "url" | "text") => {
-  //   switch (sourceType) {
-  //     case "url":
-  //       return <Globe className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;
-  //     case "text":
-  //       return <Type className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;
-  //     default:
-  //       return <FileText className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />;
-  //   }
-  // };
-
+export function SourcesPanel({ sources, activeSourceId, onAddSource, onRemoveSource, onSelectSource }: SourcesPanelProps) {
   return (
     <div className="h-full flex flex-col bg-card/30 backdrop-blur-sm border-r border-border">
       <div className="p-4 md:p-6 border-b border-border bg-card/50 flex-shrink-0">
@@ -65,16 +50,28 @@ export function SourcesPanel({ sources, onAddSource, onRemoveSource }: SourcesPa
             sources.map((source) => (
               <Card
                 key={source.id}
-                className="p-3 md:p-4 hover:shadow-md hover:border-primary/20 transition-all group cursor-pointer"
+                onClick={() => onSelectSource?.(source)}
+                className={cn(
+                  "p-3 md:p-4 transition-all group cursor-pointer border-transparent",
+                  activeSourceId === source.id
+                    ? "bg-primary/5 border-primary shadow-sm"
+                    : "hover:bg-accent/50 hover:border-border"
+                )}
               >
                 <div className="flex items-start gap-2 md:gap-3">
-                  <div className="p-1.5 md:p-2 rounded-lg bg-primary/10 flex-shrink-0">
-                    {source.sourceType === "url" && <Globe className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary" />}
-                    {source.sourceType === "text" && <Type className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary" />}
-                    {source.sourceType === "file" && <FileText className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary" />}
+                  <div className={cn(
+                    "p-1.5 md:p-2 rounded-lg flex-shrink-0 transition-colors",
+                    activeSourceId === source.id ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"
+                  )}>
+                    {source.sourceType === "url" && <Globe className="w-3.5 h-3.5 md:w-4 md:h-4" />}
+                    {source.sourceType === "text" && <Type className="w-3.5 h-3.5 md:w-4 md:h-4" />}
+                    {source.sourceType === "file" && <FileText className="w-3.5 h-3.5 md:w-4 md:h-4" />}
                   </div>
                   <div className="flex-1 min-w-0 space-y-0.5 md:space-y-1 overflow-hidden pr-1 md:pr-2">
-                    <p className="text-xs md:text-sm font-medium truncate break-all" title={source.name}>
+                    <p className={cn(
+                      "text-xs md:text-sm font-medium truncate break-all transition-colors",
+                      activeSourceId === source.id ? "text-primary" : "text-foreground"
+                    )} title={source.name}>
                       {source.name}
                     </p>
                     <div className="flex items-center gap-1.5 md:gap-2 flex-wrap">

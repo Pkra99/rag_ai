@@ -108,10 +108,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.log("🔍 Query sessionId:", urlSessionId);
 
     const sessionId = headerSessionId || urlSessionId || "default-session";
-    if (!sessionId) {
-      // This block is now unreachable but kept for safety structure
-      console.warn("⚠️ Session ID missing, using default.");
-    }
+
 
     // ✅ Ensure required environment variables exist
     const { QDRANT_URL, QDRANT_KEY, GOOGLE_GENERATIVE_AI_API_KEY } =
@@ -199,7 +196,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       console.log("📝 Processing direct text input");
       const textDoc = new Document({
         pageContent: rawText,
-        metadata: { source: "user_text", type: "text", tenant_id: sessionId },
+        metadata: { source: "User Text", type: "text", tenant_id: sessionId },
       });
       docs.push(textDoc);
       console.log("✅ Text input added as document");
@@ -211,6 +208,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 400 }
       );
     }
+    // This improves retrieval by breaking large texts into semantically meaningful chunks
+    // with overlap to preserve context across boundaries.
+    const { RecursiveCharacterTextSplitter } = await import("@langchain/textsplitters");
+
+    const splitter = new RecursiveCharacterTextSplitter({
+      chunkSize: 1000,       // Optimal size for most LLM contexts
+      chunkOverlap: 200,     // Overlap to maintain context between chunks
+      separators: ["\n\n", "\n", " ", ""], // Priority for splitting
+    });
+
+    console.log("✂️ Splitting documents into optimized chunks...");
+    const splitDocs = await splitter.splitDocuments(docs);
+    console.log(`✅ Split ${docs.length} original docs into ${splitDocs.length} chunks`);
 
     // ✅ Initialize Google embeddings
     const embeddings = new GoogleGenerativeAIEmbeddings({
@@ -220,7 +230,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // ✅ Store embeddings in Qdrant
     console.log("🚀 Generating embeddings and uploading to Qdrant...");
-    await QdrantVectorStore.fromDocuments(docs, embeddings, {
+    await QdrantVectorStore.fromDocuments(splitDocs, embeddings, {
       url: QDRANT_URL,
       apiKey: QDRANT_KEY,
       collectionName: "PDF_Indexing",
@@ -328,7 +338,12 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
     result.points.forEach((point: any) => {
       // LangChain Qdrant store uses nested metadata
       const pointSource = point.payload?.metadata?.source || point.payload?.source;
-      if (pointSource === fileName) {
+
+      // Match exact filename OR handle legacy "user_text" case
+      const isMatch = pointSource === fileName ||
+        (fileName === "User Text" && pointSource === "user_text");
+
+      if (isMatch) {
         toDelete.push(point.id);
         console.log(`✓ Match found: ID ${point.id}, source: "${pointSource}"`);
       }

@@ -1,4 +1,4 @@
-// Updated: app/page.tsx
+
 'use client';
 
 import { useState, useEffect, useRef } from "react";
@@ -10,25 +10,12 @@ import { SourceInput } from "@/components/sources/AddSourceDialog";
 import { Coins, RotateCcw, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-
-interface Source {
-  id: string;
-  name: string;
-  type: string;
-  size: string;
-  sourceType: "file" | "url" | "text";
-}
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  isLoading?: boolean;
-}
+import { Source, ChatMessage } from "@/types";
 
 const Index = () => {
   const [sources, setSources] = useState<Source[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [chats, setChats] = useState<Record<string, ChatMessage[]>>({});
+  const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [sessionId, setSessionId] = useState<string>("");
@@ -38,6 +25,9 @@ const Index = () => {
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isCancelledRef = useRef(false);
+
+  // Derived state for current messages
+  const activeMessages = activeSourceId ? (chats[activeSourceId] || []) : [];
 
   // 🧠 Initialize Session
   useEffect(() => {
@@ -51,25 +41,25 @@ const Index = () => {
     }
     setSessionId(storedSessionId);
 
-    // Load persisted messages
-    const savedMessages = localStorage.getItem(`chat_messages_${storedSessionId}`);
-    if (savedMessages) {
+    // Load persisted chats
+    const savedChats = localStorage.getItem(`chat_history_${storedSessionId}`);
+    if (savedChats) {
       try {
-        setMessages(JSON.parse(savedMessages));
+        setChats(JSON.parse(savedChats));
       } catch (e) {
-        console.error("Failed to parse saved messages", e);
+        console.error("Failed to parse saved chats", e);
       }
     }
 
     fetchSessionData(storedSessionId);
   }, []);
 
-  // 💾 Persist Messages
+  // 💾 Persist Chats
   useEffect(() => {
-    if (sessionId && messages.length > 0) {
-      localStorage.setItem(`chat_messages_${sessionId}`, JSON.stringify(messages));
+    if (sessionId && Object.keys(chats).length > 0) {
+      localStorage.setItem(`chat_history_${sessionId}`, JSON.stringify(chats));
     }
-  }, [messages, sessionId]);
+  }, [chats, sessionId]);
 
   const fetchSessionData = async (sid: string) => {
     try {
@@ -83,6 +73,10 @@ const Index = () => {
       if (data.tokens !== undefined) setTokens(data.tokens);
       if (data.files) {
         setSources(data.files);
+        // If there are sources, set the first one as active if none is selected
+        if (!activeSourceId && data.files.length > 0) {
+          setActiveSourceId(data.files[0].id);
+        }
       }
     } catch (error) {
       console.error("Failed to fetch session data:", error);
@@ -98,7 +92,7 @@ const Index = () => {
       });
       localStorage.removeItem("rag_session_id");
       window.location.reload();
-    } catch (error) {
+    } catch {
       toast({ title: "Error", description: "Failed to reset session", variant: "destructive" });
     }
   };
@@ -111,7 +105,7 @@ const Index = () => {
         behavior: "smooth",
       });
     }
-  }, [messages]);
+  }, [activeMessages]);
 
   const stopStreaming = () => {
     if (abortControllerRef.current) {
@@ -122,6 +116,11 @@ const Index = () => {
   };
 
   // -------------------- SOURCE HANDLERS --------------------
+  const handleSourceSelect = (source: Source) => {
+    setActiveSourceId(source.id);
+    setMobileMenuOpen(false);
+  };
+
   const handleAddSource = async (sourceInput: SourceInput) => {
     const currentSessionId = localStorage.getItem("rag_session_id");
     if (!currentSessionId) {
@@ -155,16 +154,20 @@ const Index = () => {
 
         if (data.success) {
           // Replace temp source with real data
+          const newSourceId = data.source?.id?.toString() || tempId;
           setSources(prev => prev.map(s =>
             s.id === tempId ? {
-              id: data.source?.id?.toString() || tempId,
+              id: newSourceId,
               name: data.source?.name || file.name,
               type: data.source?.type || file.type.split("/")[1]?.toUpperCase() || "FILE",
               size: `${(file.size / 1024).toFixed(1)} KB`,
               sourceType: "file",
             } : s
           ));
-          setMessages([]);
+
+          // Auto-select new source
+          setActiveSourceId(newSourceId);
+
           toast({
             title: "Source added",
             description: `${file.name} indexed successfully.`,
@@ -188,7 +191,8 @@ const Index = () => {
             sourceType: "url",
           };
           setSources([...sources, newSource]);
-          setMessages([]);
+          setActiveSourceId(newSource.id);
+
           toast({
             title: "Source added",
             description: `${newSource.name} indexed successfully.`,
@@ -214,7 +218,8 @@ const Index = () => {
             sourceType: "text",
           };
           setSources([...sources, newSource]);
-          setMessages([]);
+          setActiveSourceId(newSource.id);
+
           toast({
             title: "Source added",
             description: `${newSource.name} indexed successfully.`,
@@ -248,7 +253,17 @@ const Index = () => {
 
       // Remove from UI immediately
       setSources(sources.filter((s) => s.id !== id));
-      setMessages([]);
+
+      // Remove chat history for this source
+      setChats(prev => {
+        const newChats = { ...prev };
+        delete newChats[id];
+        return newChats;
+      });
+
+      if (activeSourceId === id) {
+        setActiveSourceId(null);
+      }
 
       // Refetch session data to sync with Redis
       await fetchSessionData(currentSessionId);
@@ -264,7 +279,23 @@ const Index = () => {
     }
   };
 
+  const updateChat = (sourceId: string, newMessages: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+    setChats(prev => ({
+      ...prev,
+      [sourceId]: typeof newMessages === 'function' ? newMessages(prev[sourceId] || []) : newMessages
+    }));
+  };
+
   const handleSendMessage = async (content: string) => {
+    if (!activeSourceId) {
+      toast({
+        title: "No source selected",
+        description: "Please select a source to start chatting.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (tokens <= 0) {
       toast({
         title: "🚫 Daily limit reached",
@@ -275,23 +306,18 @@ const Index = () => {
       return;
     }
 
-    if (sources.length === 0) {
-      toast({
-        title: "No sources available",
-        description: "Please upload documents before asking questions.",
-        variant: "destructive",
-      });
-      return;
-    }
+    const activeSource = sources.find(s => s.id === activeSourceId);
+    if (!activeSource) return;
 
-    const userMessage: Message = { id: crypto.randomUUID(), role: "user", content };
-    const loadingMessage: Message = {
+    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content };
+    const loadingMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: "assistant",
       content: "",
       isLoading: true
     };
-    setMessages((prev) => [...prev, userMessage, loadingMessage]);
+
+    updateChat(activeSourceId, prev => [...prev, userMessage, loadingMessage]);
     setIsStreaming(true);
     // Optimistic update
     setTokens(prev => Math.max(0, prev - 1));
@@ -309,7 +335,8 @@ const Index = () => {
         body: JSON.stringify({
           question: content,
           sources,
-          conversationHistory: messages.map(m => ({ role: m.role, content: m.content }))
+          targetSource: activeSource.name, // Pass target source name for filtering
+          conversationHistory: (chats[activeSourceId] || []).map(m => ({ role: m.role, content: m.content }))
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -330,17 +357,17 @@ const Index = () => {
       }
 
       // Remove loading message
-      setMessages((prev) => prev.filter((msg) => msg.id !== loadingMessage.id));
+      updateChat(activeSourceId, prev => prev.filter((msg) => msg.id !== loadingMessage.id));
 
-      const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", content: "" };
-      setMessages((prev) => [...prev, assistantMessage]);
+      const assistantMessage: ChatMessage = { id: crypto.randomUUID(), role: "assistant", content: "" };
+      updateChat(activeSourceId, prev => [...prev, assistantMessage]);
 
       // Handle Streaming Response
       if (!response.body) throw new Error("No response body");
 
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let fullContent = "";
       let displayedContent = "";
 
       // Buffer for typewriter effect
@@ -353,7 +380,7 @@ const Index = () => {
           const char = buffer.shift();
           if (char) {
             displayedContent += char;
-            setMessages((prev) =>
+            updateChat(activeSourceId, prev =>
               prev.map((msg) =>
                 msg.id === assistantMessage.id ? { ...msg, content: displayedContent } : msg
               )
@@ -381,7 +408,6 @@ const Index = () => {
         }
 
         const chunk = decoder.decode(value, { stream: true });
-        fullContent += chunk;
 
         // Push characters to buffer
         for (const char of chunk) {
@@ -389,24 +415,24 @@ const Index = () => {
         }
       }
 
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
         // Remove loading message on abort
-        setMessages((prev) => prev.filter((msg) => msg.id !== loadingMessage.id));
+        updateChat(activeSourceId, prev => prev.filter((msg) => msg.id !== loadingMessage.id));
         toast({
           title: "Stopped",
           description: "Response generation stopped.",
         });
       } else {
         // Remove loading message on other errors
-        setMessages((prev) => prev.filter((msg) => msg.id !== loadingMessage.id));
-        const errMsg = error instanceof Error ? error.message : "Unknown error";
-        const errorMessage: Message = {
+        updateChat(activeSourceId, prev => prev.filter((msg) => msg.id !== loadingMessage.id));
+        const errMsg = err instanceof Error ? err.message : "Unknown error";
+        const errorMessage: ChatMessage = {
           id: crypto.randomUUID(),
           role: "assistant",
           content: `Error: ${errMsg}`
         };
-        setMessages((prev) => [...prev, errorMessage]);
+        updateChat(activeSourceId, prev => [...prev, errorMessage]);
         toast({ title: "Error", description: errMsg, variant: "destructive" });
       }
     } finally {
@@ -434,17 +460,19 @@ const Index = () => {
               </SheetHeader>
               <SourcesPanel
                 sources={sources}
+                activeSourceId={activeSourceId}
                 onAddSource={(input) => {
                   handleAddSource(input);
-                  setMobileMenuOpen(false);
+                  // setMobileMenuOpen(false); // Keep open to see result or close? User preference.
                 }}
                 onRemoveSource={handleRemoveSource}
+                onSelectSource={handleSourceSelect}
               />
             </SheetContent>
           </Sheet>
 
           <h1 className="text-sm md:text-lg font-semibold tracking-wide">RAGify</h1>
-          <span className="hidden sm:inline text-[10px] md:text-xs text-muted-foreground px-1.5 py-0.5 bg-muted rounded-full">v1.0</span>
+          <span className="hidden sm:inline text-[10px] md:text-xs text-muted-foreground px-1.5 py-0.5 bg-muted rounded-full">v3.1</span>
         </div>
 
         <div className="flex items-center gap-1.5 md:gap-4">
@@ -474,8 +502,10 @@ const Index = () => {
         <aside className="hidden md:block w-80 flex-shrink-0 border-r h-full overflow-hidden">
           <SourcesPanel
             sources={sources}
+            activeSourceId={activeSourceId}
             onAddSource={handleAddSource}
             onRemoveSource={handleRemoveSource}
+            onSelectSource={handleSourceSelect}
           />
         </aside>
 
@@ -484,9 +514,11 @@ const Index = () => {
           <div ref={chatContainerRef} className="flex-1 overflow-y-auto">
             <ChatInterface
               onSendMessage={handleSendMessage}
-              messages={messages}
+              messages={activeMessages}
               isStreaming={isStreaming}
+              isSourceSelected={!!activeSourceId}
               onStop={stopStreaming}
+              onAddSource={handleAddSource}
             />
           </div>
         </main>

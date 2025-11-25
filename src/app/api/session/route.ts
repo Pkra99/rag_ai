@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionTokens, getSessionFiles, clearSession, resetSessionTokens } from "@/lib/redis";
+import { getSessionTokens, getSessionFiles, clearSession } from "@/lib/redis";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import "dotenv/config";
 
