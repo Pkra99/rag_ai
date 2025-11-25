@@ -42,21 +42,44 @@ const Index = () => {
   // 🧠 Initialize Session
   useEffect(() => {
     let storedSessionId = localStorage.getItem("rag_session_id");
+    console.log("🔍 Initializing session. Stored ID:", storedSessionId);
+
     if (!storedSessionId) {
       storedSessionId = crypto.randomUUID();
       localStorage.setItem("rag_session_id", storedSessionId);
+      console.log("🆕 Generated new session ID:", storedSessionId);
     }
     setSessionId(storedSessionId);
+
+    // Load persisted messages
+    const savedMessages = localStorage.getItem(`chat_messages_${storedSessionId}`);
+    if (savedMessages) {
+      try {
+        setMessages(JSON.parse(savedMessages));
+      } catch (e) {
+        console.error("Failed to parse saved messages", e);
+      }
+    }
 
     fetchSessionData(storedSessionId);
   }, []);
 
+  // 💾 Persist Messages
+  useEffect(() => {
+    if (sessionId && messages.length > 0) {
+      localStorage.setItem(`chat_messages_${sessionId}`, JSON.stringify(messages));
+    }
+  }, [messages, sessionId]);
+
   const fetchSessionData = async (sid: string) => {
     try {
+      console.log("📥 Fetching session data for:", sid);
       const res = await fetch("/api/session", {
         headers: { "x-session-id": sid },
       });
       const data = await res.json();
+      console.log("📊 Session data received:", data);
+
       if (data.tokens !== undefined) setTokens(data.tokens);
       if (data.files) {
         setSources(data.files);
@@ -283,7 +306,11 @@ const Index = () => {
           "Content-Type": "application/json",
           "x-session-id": sessionId
         },
-        body: JSON.stringify({ question: content, sources }),
+        body: JSON.stringify({
+          question: content,
+          sources,
+          conversationHistory: messages.map(m => ({ role: m.role, content: m.content }))
+        }),
         signal: abortControllerRef.current.signal,
       });
 
@@ -313,25 +340,53 @@ const Index = () => {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let currentContent = "";
+      let fullContent = "";
+      let displayedContent = "";
+
+      // Buffer for typewriter effect
+      const buffer: string[] = [];
+      let isTyping = false;
+
+      // Typewriter effect interval
+      const typeWriter = setInterval(() => {
+        if (buffer.length > 0) {
+          const char = buffer.shift();
+          if (char) {
+            displayedContent += char;
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessage.id ? { ...msg, content: displayedContent } : msg
+              )
+            );
+          }
+        } else if (!isTyping && !isStreaming) {
+          // Stop typing if buffer is empty and streaming is done
+          clearInterval(typeWriter);
+        }
+      }, 15); // Adjust speed here (lower = faster)
+
+      isTyping = true;
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          isTyping = false;
+          break;
+        }
 
         if (isCancelledRef.current) {
           await reader.cancel();
+          isTyping = false;
           break;
         }
 
         const chunk = decoder.decode(value, { stream: true });
-        currentContent += chunk;
+        fullContent += chunk;
 
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessage.id ? { ...msg, content: currentContent } : msg
-          )
-        );
+        // Push characters to buffer
+        for (const char of chunk) {
+          buffer.push(char);
+        }
       }
 
     } catch (error: any) {
@@ -364,7 +419,7 @@ const Index = () => {
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* 🧭 Persistent Header */}
-      <header className="flex items-center justify-between px-3 md:px-6 py-2 md:py-3 border-b bg-background/80 backdrop-blur-md sticky top-0 z-50">
+      <header className="flex items-center justify-between px-3 py-2 md:px-6 md:py-3 border-b bg-background/80 backdrop-blur-md sticky top-0 z-50">
         <div className="flex items-center gap-1.5 md:gap-2">
           {/* Hamburger Menu - Mobile Only */}
           <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
@@ -388,21 +443,21 @@ const Index = () => {
             </SheetContent>
           </Sheet>
 
-          <h1 className="text-base md:text-lg font-semibold tracking-wide">RAGify</h1>
-          <span className="hidden sm:inline text-xs text-muted-foreground px-2 py-0.5 bg-muted rounded-full">v1.0</span>
+          <h1 className="text-sm md:text-lg font-semibold tracking-wide">RAGify</h1>
+          <span className="hidden sm:inline text-[10px] md:text-xs text-muted-foreground px-1.5 py-0.5 bg-muted rounded-full">v1.0</span>
         </div>
 
         <div className="flex items-center gap-1.5 md:gap-4">
           {/* Warning - Hidden on small mobile */}
           {tokens === 0 && (
-            <div className="hidden sm:flex items-center gap-2 px-2 md:px-3 py-1 md:py-1.5 bg-destructive/10 rounded-full border border-destructive/20">
-              <span className="text-xs md:text-sm font-medium text-destructive">⚠️ Limit reached</span>
+            <div className="hidden sm:flex items-center gap-1.5 px-2 md:px-3 py-1 md:py-1.5 bg-destructive/10 rounded-full border border-destructive/20">
+              <span className="text-[10px] md:text-sm font-medium text-destructive">⚠️ Limit reached</span>
             </div>
           )}
           {/* Tokens */}
           <div className="flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 bg-primary/10 rounded-full border border-primary/20">
             <Coins className="w-3 h-3 md:w-4 md:h-4 text-primary" />
-            <span className="text-xs md:text-sm font-medium text-primary">{tokens}</span>
+            <span className="text-[10px] md:text-sm font-medium text-primary">{tokens}</span>
           </div>
           {/* Reset (Dev Only) */}
           {process.env.NODE_ENV === 'development' && (
