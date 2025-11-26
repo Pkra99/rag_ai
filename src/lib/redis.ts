@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { logger } from "@/lib/logger";
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
@@ -60,16 +61,16 @@ export async function removeSessionFile(sessionId: string, fileName: string): Pr
     const key = `session:${sessionId}:files`;
     const files = await redis.lrange(key, 0, -1);
 
-    console.log(`🗑️ Redis: Removing "${fileName}" from session ${sessionId}`);
-    console.log(`📊 Redis: Found ${files.length} files in list`);
+    logger.log(`🗑️ Redis: Removing "${fileName}" from session ${sessionId}`);
+    logger.log(`📊 Redis: Found ${files.length} files in list`);
 
     // Find and remove the file with matching name
     for (const fileJson of files) {
         const file: FileMetadata = JSON.parse(fileJson);
-        console.log(`   Checking: "${file.name}"`);
+        logger.log(`   Checking: "${file.name}"`);
         if (file.name === fileName) {
             await redis.lrem(key, 1, fileJson);
-            console.log(`   ✅ Removed "${fileName}" from Redis`);
+            logger.log(`   ✅ Removed "${fileName}" from Redis`);
             break;
         }
     }

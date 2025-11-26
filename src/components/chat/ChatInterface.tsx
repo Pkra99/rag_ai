@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from "react";
-import { Sparkles, Loader, Plus, ArrowLeft } from "lucide-react";
+import { Loader, Plus, ArrowLeft } from "lucide-react";
 import React from "react";
 import {
   PromptInput,

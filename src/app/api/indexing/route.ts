@@ -6,6 +6,7 @@ import { Document } from "@langchain/core/documents";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { QdrantVectorStore } from "@langchain/qdrant";
 import { addSessionFile, FileMetadata, removeSessionFile } from "@/lib/redis";
+import { logger } from "@/lib/logger";
 
 export const maxDuration = 60; // Prevent timeouts on Vercel
 
@@ -19,11 +20,11 @@ async function handleFileUpload(file: File | null, docs: Document[], sessionId: 
   let fileType = "";
 
   try {
-    console.log(`📄 Processing file: ${file.name} (${extension})`);
+    logger.log(`📄 Processing file: ${file.name} (${extension})`);
 
     switch (extension) {
       case "pdf":
-        console.log("📥 Loading PDF with WebPDFLoader...");
+        logger.log("📥 Loading PDF with WebPDFLoader...");
         const loader = new WebPDFLoader(file, { splitPages: true });
         const pdfDocs = await loader.load();
 
@@ -51,7 +52,7 @@ async function handleFileUpload(file: File | null, docs: Document[], sessionId: 
         });
 
         docs.push(...pdfDocs);
-        console.log(`✅ PDF: ${pdfDocs.length} pages, ~${totalWords} words`);
+        logger.log(`✅ PDF: ${pdfDocs.length} pages, ~${totalWords} words`);
         break;
 
       case "md":
@@ -75,7 +76,7 @@ async function handleFileUpload(file: File | null, docs: Document[], sessionId: 
         });
 
         docs.push(textDoc);
-        console.log(`✅ ${extension.toUpperCase()}: ~${totalWords} words`);
+        logger.log(`✅ ${extension.toUpperCase()}: ~${totalWords} words`);
         break;
 
       default:
@@ -97,15 +98,15 @@ async function handleFileUpload(file: File | null, docs: Document[], sessionId: 
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    console.log("📄 Indexing request received");
+    logger.log("📄 Indexing request received");
 
     // Debug logging
     const headerSessionId = req.headers.get("x-session-id");
     const urlSessionId = req.nextUrl.searchParams.get("sessionId");
 
-    console.log("🔍 Headers:", Object.fromEntries(req.headers.entries()));
-    console.log("🔍 x-session-id:", headerSessionId);
-    console.log("🔍 Query sessionId:", urlSessionId);
+    logger.log("🔍 Headers:", Object.fromEntries(req.headers.entries()));
+    logger.log("🔍 x-session-id:", headerSessionId);
+    logger.log("🔍 Query sessionId:", urlSessionId);
 
     const sessionId = headerSessionId || urlSessionId || "default-session";
 
@@ -151,7 +152,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // ✅ Handle Website URL
     let webMetrics = { words: 0, docsCount: 0 };
     if (websiteUrl) {
-      console.log(`🌐 Fetching content from: ${websiteUrl}`);
+      logger.log(`🌐 Fetching content from: ${websiteUrl}`);
 
       // Server-side validation
       try {
@@ -186,20 +187,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       docs.push(...webDocs);
       webMetrics = { words: totalWords, docsCount: webDocs.length };
-      console.log(
+      logger.log(
         `✅ Extracted ${webDocs.length} docs, ~${totalWords} words from ${websiteUrl}`
       );
     }
 
     // ✅ Handle Raw Text Input
     if (rawText) {
-      console.log("📝 Processing direct text input");
+      logger.log("📝 Processing direct text input");
       const textDoc = new Document({
         pageContent: rawText,
         metadata: { source: "User Text", type: "text", tenant_id: sessionId },
       });
       docs.push(textDoc);
-      console.log("✅ Text input added as document");
+      logger.log("✅ Text input added as document");
     }
 
     if (docs.length === 0) {
@@ -218,9 +219,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       separators: ["\n\n", "\n", " ", ""], // Priority for splitting
     });
 
-    console.log("✂️ Splitting documents into optimized chunks...");
+    logger.log("✂️ Splitting documents into optimized chunks...");
     const splitDocs = await splitter.splitDocuments(docs);
-    console.log(`✅ Split ${docs.length} original docs into ${splitDocs.length} chunks`);
+    logger.log(`✅ Split ${docs.length} original docs into ${splitDocs.length} chunks`);
 
     // ✅ Initialize Google embeddings
     const embeddings = new GoogleGenerativeAIEmbeddings({
@@ -229,14 +230,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
     // ✅ Store embeddings in Qdrant
-    console.log("🚀 Generating embeddings and uploading to Qdrant...");
+    logger.log("🚀 Generating embeddings and uploading to Qdrant...");
     await QdrantVectorStore.fromDocuments(splitDocs, embeddings, {
       url: QDRANT_URL,
       apiKey: QDRANT_KEY,
       collectionName: "PDF_Indexing",
     });
 
-    console.log("✅ Indexing completed successfully");
+    logger.log("✅ Indexing completed successfully");
 
     // ✅ Unified success response
     let sourceType: "file" | "url" | "text" = "text";
@@ -309,7 +310,7 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    console.log(`\n🗑️  DELETE REQUEST for: "${fileName}"`);
+    logger.log(`\n🗑️  DELETE REQUEST for: "${fileName}"`);
 
     const { QDRANT_URL, QDRANT_KEY } = process.env;
     if (!QDRANT_URL || !QDRANT_KEY) {
@@ -323,14 +324,14 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
     const client = new QdrantClient({ url: QDRANT_URL, apiKey: QDRANT_KEY });
 
     // Get ALL points from collection with payload
-    console.log("📥 Fetching all points from Qdrant...");
+    logger.log("📥 Fetching all points from Qdrant...");
     const result = await client.scroll("PDF_Indexing", {
       limit: 1000,
       with_payload: true,
       with_vector: false,
     });
 
-    console.log(`📊 Retrieved ${result.points.length} total points`);
+    logger.log(`📊 Retrieved ${result.points.length} total points`);
 
     // Find matching points (LangChain stores metadata under payload.metadata)
     const toDelete: string[] = [];
@@ -345,19 +346,19 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
 
       if (isMatch) {
         toDelete.push(point.id);
-        console.log(`✓ Match found: ID ${point.id}, source: "${pointSource}"`);
+        logger.log(`✓ Match found: ID ${point.id}, source: "${pointSource}"`);
       }
     });
 
-    console.log(`\n🎯 Found ${toDelete.length} points to delete`);
+    logger.log(`\n🎯 Found ${toDelete.length} points to delete`);
 
     if (toDelete.length === 0) {
-      console.log(`\n⚠️  No matches found. Debugging first point:`);
+      logger.log(`\n⚠️  No matches found. Debugging first point:`);
       if (result.points.length > 0) {
         const firstPoint = result.points[0] as any;
-        console.log(`   payload.source: "${firstPoint.payload?.source}"`);
-        console.log(`   payload.metadata.source: "${firstPoint.payload?.metadata?.source}"`);
-        console.log(`   Full payload keys:`, Object.keys(firstPoint.payload || {}));
+        logger.log(`   payload.source: "${firstPoint.payload?.source}"`);
+        logger.log(`   payload.metadata.source: "${firstPoint.payload?.metadata?.source}"`);
+        logger.log(`   Full payload keys:`, Object.keys(firstPoint.payload || {}));
       }
 
       return NextResponse.json({
@@ -368,14 +369,14 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
     }
 
     // Delete points by ID
-    console.log(`\n🔥 Deleting ${toDelete.length} points from Qdrant...`);
+    logger.log(`\n🔥 Deleting ${toDelete.length} points from Qdrant...`);
     await client.delete("PDF_Indexing", { points: toDelete });
 
     // Also remove from Redis file list
     const sessionId = req.headers.get("x-session-id") || searchParams.get("sessionId") || "default-session";
     await removeSessionFile(sessionId, fileName);
 
-    console.log(`✅ Successfully deleted ${toDelete.length} embeddings and removed from Redis\n`);
+    logger.log(`✅ Successfully deleted ${toDelete.length} embeddings and removed from Redis\n`);
 
     return NextResponse.json({
       success: true,

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import { getSessionTokens, getSessionFiles, clearSession } from "@/lib/redis";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import "dotenv/config";
@@ -40,7 +41,7 @@ export async function DELETE(req: NextRequest) {
                     apiKey: process.env.QDRANT_KEY,
                 });
 
-                console.log(`🗑️ Clearing all embeddings for session: ${sessionId}`);
+                logger.log(`🗑️ Clearing all embeddings for session: ${sessionId}`);
 
                 // Scroll to get all points for this session
                 const result = await qdrantClient.scroll("PDF_Indexing", {
@@ -60,9 +61,9 @@ export async function DELETE(req: NextRequest) {
 
                 if (toDelete.length > 0) {
                     await qdrantClient.delete("PDF_Indexing", { points: toDelete });
-                    console.log(`✅ Deleted ${toDelete.length} embeddings for session: ${sessionId}`);
+                    logger.log(`✅ Deleted ${toDelete.length} embeddings for session: ${sessionId}`);
                 } else {
-                    console.log(`⚠️ No embeddings found for session: ${sessionId}`);
+                    logger.log(`⚠️ No embeddings found for session: ${sessionId}`);
                 }
             } catch (qdrantError) {
                 console.error("❌ Error clearing Qdrant data:", qdrantError);

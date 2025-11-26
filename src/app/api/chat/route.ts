@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import "dotenv/config";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
+import { logger } from "@/lib/logger";
 import { google } from "@ai-sdk/google";
 import { streamText } from "ai";
 import { getSessionTokens, decrementSessionTokens } from "@/lib/redis";
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
       .map((doc, i) => `Context #${i + 1} (Page ${doc.metadata?.page || "?"}):\n${doc.pageContent}`)
       .join("\n\n");
 
-    console.log("📊 Retrieved:", sessionResults.length, "chunks,", context.length, "chars");
+    logger.log("📊 Retrieved:", sessionResults.length, "chunks,", context.length, "chars");
 
     const hasContext = context.trim().length > 0;
 
@@ -115,7 +116,7 @@ RESPONSE RULES (STRICT)
 All responses MUST follow these rules exactly.
 `;
 
-    console.log("📤 Streaming response with Gemini...");
+    logger.log("📤 Streaming response with Gemini...");
 
     const result = streamText({
       model: google("gemini-2.0-flash-lite"),

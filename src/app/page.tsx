@@ -10,6 +10,7 @@ import { SourceInput } from "@/components/sources/AddSourceDialog";
 import { Coins, RotateCcw, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { logger } from "@/lib/logger";
 import { Source, ChatMessage } from "@/types";
 
 const Index = () => {
@@ -32,12 +33,12 @@ const Index = () => {
   // 🧠 Initialize Session
   useEffect(() => {
     let storedSessionId = localStorage.getItem("rag_session_id");
-    console.log("🔍 Initializing session. Stored ID:", storedSessionId);
+    logger.log("🔍 Initializing session. Stored ID:", storedSessionId);
 
     if (!storedSessionId) {
       storedSessionId = crypto.randomUUID();
       localStorage.setItem("rag_session_id", storedSessionId);
-      console.log("🆕 Generated new session ID:", storedSessionId);
+      logger.log("🆕 Generated new session ID:", storedSessionId);
     }
     setSessionId(storedSessionId);
 
@@ -63,12 +64,12 @@ const Index = () => {
 
   const fetchSessionData = async (sid: string) => {
     try {
-      console.log("📥 Fetching session data for:", sid);
+      logger.log("📥 Fetching session data for:", sid);
       const res = await fetch("/api/session", {
         headers: { "x-session-id": sid },
       });
       const data = await res.json();
-      console.log("📊 Session data received:", data);
+      logger.log("📊 Session data received:", data);
 
       if (data.tokens !== undefined) setTokens(data.tokens);
       if (data.files) {
