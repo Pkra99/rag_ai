@@ -1,22 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import "dotenv/config";
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
-import { QdrantVectorStore } from "@langchain/qdrant";
-import { Agent, run } from "@openai/agents";
-import { aisdk } from "@openai/agents-extensions";
+import { logger } from "@/lib/logger";
 import { google } from "@ai-sdk/google";
-
-// Initialize Gemini client
-//const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
-
+import { streamText } from "ai";
+import { getSessionTokens, decrementSessionTokens } from "@/lib/redis";
 
 export async function POST(req: NextRequest) {
   try {
-    const { question, sources } = await req.json();
+    const { question, sources, targetSource } = await req.json();
+    const sessionId = req.headers.get("x-session-id") || "default-session";
 
     if (!question || !sources || sources.length === 0) {
       return NextResponse.json({ error: "Missing question or sources" }, { status: 400 });
     }
+
+    //  Check Token Limit
+    const tokens = await getSessionTokens(sessionId);
+    if (tokens <= 0) {
+      return NextResponse.json(
+        { error: "Daily limit reached. Please try again tomorrow.", tokens: 0 },
+        { status: 429 }
+      );
+    }
+
+    //  Decrement Token
+    const remainingTokens = await decrementSessionTokens(sessionId);
 
     if (!process.env.QDRANT_URL || !process.env.QDRANT_KEY) {
       return NextResponse.json({ error: "Qdrant environment variables not set" }, { status: 500 });
@@ -29,55 +38,102 @@ export async function POST(req: NextRequest) {
     // Use Google's text embedding model
     const embeddings = new GoogleGenerativeAIEmbeddings({
       apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-      modelName: "text-embedding-004", // Latest embedding model
+      modelName: "text-embedding-004",
     });
 
-    const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, {
+    const questionEmbedding = await embeddings.embedQuery(question);
+
+    const { QdrantClient } = await import("@qdrant/js-client-rest");
+    const qdrantClient = new QdrantClient({
       url: process.env.QDRANT_URL,
       apiKey: process.env.QDRANT_KEY,
-      collectionName: "PDF_Indexing",
     });
 
-    const vectorRetriever = vectorStore.asRetriever({
-      k: 4,
+    // Search Qdrant
+    const searchResult = await qdrantClient.search("PDF_Indexing", {
+      vector: questionEmbedding,
+      limit: 15, // Increase limit to allow for filtering
+      with_payload: true,
+      with_vector: false,
     });
 
-    const relevantChunks = await vectorRetriever.invoke(question);
+    const sessionResults = searchResult.filter((point: any) => {
+      const payload = point.payload || {};
+      const metadata = payload.metadata || {};
+
+      const tenantId = metadata.tenant_id || payload.tenant_id;
+      const sourceName = metadata.source || payload.source;
+
+      // Filter by Session ID
+      if (tenantId !== sessionId) return false;
+
+      // Filter by Target Source (if provided)
+      if (targetSource && sourceName !== targetSource) return false;
+
+      return true;
+    }).slice(0, 4);
+
+    const relevantChunks = sessionResults.map((point: any) => ({
+      pageContent: (point.payload as any)?.content || (point.payload as any)?.text || "",
+      metadata: (point.payload as any)?.metadata || {},
+    }));
 
     const context = relevantChunks
-      .map(
-        (doc, i) =>
-          `Context #${i + 1} (Page ${doc.metadata?.page || "?"}):\n${doc.pageContent}`
-      )
+      .map((doc, i) => `Context #${i + 1} (Page ${doc.metadata?.page || "?"}):\n${doc.pageContent}`)
       .join("\n\n");
 
-    const SYSTEM_PROMPT = `
-You are an AI assistant who search the user query from the context available to you from the PDF file with content and page number.
-Only answer based on the available context from file only.
+    logger.log("📊 Retrieved:", sessionResults.length, "chunks,", context.length, "chars");
 
-Context:
-${context}
+    const hasContext = context.trim().length > 0;
+
+    const SYSTEM_PROMPT = `
+You are an AI assistant that answers ONLY using the information explicitly provided below.
+
+${hasContext
+        ? `📄 DOCUMENT CONTEXT (extracts from uploaded files):\n${context}\n`
+        : '📄 DOCUMENT CONTEXT: None available.\n'}
+
+===========================
+RESPONSE RULES (STRICT)
+===========================
+
+1️⃣ If NO document context is available:
+- You MUST reply with EXACTLY:
+"I couldn't find this information in your uploaded documents."
+
+- Do NOT provide general knowledge
+- Do NOT attempt to answer the question
+
+2️⃣ If document context exists:
+- Use ONLY that context to answer
+- Begin response with: "📄 From your documents:"
+- If something is unclear or missing in context, say so — but do NOT invent facts
+
+3️⃣ NEVER:
+- Use general/world knowledge not provided in documents
+- Mention web search or external information
+
+All responses MUST follow these rules exactly.
 `;
 
-    // Use Gemini model for chat completion
-    const model = aisdk(google("gemini-2.5-flash"))
+    logger.log("📤 Streaming response with Gemini...");
 
-    const agent = new Agent({
-      name: "RAG-Agent",
-      model,
-      instructions: SYSTEM_PROMPT,
-    })
+    const result = streamText({
+      model: google("gemini-2.0-flash-lite"),
+      system: SYSTEM_PROMPT,
+      prompt: `User Question: ${question}`,
+    });
 
-    // Combine system prompt and user question for Gemini
-    const prompt = `${SYSTEM_PROMPT}\n\nUser Question: ${question}`;
-
-    const result = await run(agent, prompt);
-    const response = result.finalOutput;
-    console.log("Ai response: ",response)
-    return NextResponse.json({ response });
+    // Return the stream directly
+    return result.toTextStreamResponse({
+      headers: {
+        "x-remaining-tokens": remainingTokens.toString(),
+      },
+    });
 
   } catch (error: any) {
-    console.error("Error in chat route:", error);
+    console.error("❌ Error in chat route:", error);
+    console.error("Error details:", error.stack);
     return NextResponse.json(
       { error: error.message || "Internal server error" },
       { status: 500 }
@@ -85,76 +141,3 @@ ${context}
   }
 }
 
-
-
-
-
-
-
-
-
-
-
-// import { NextRequest, NextResponse } from 'next/server';
-// import "dotenv/config";
-// import { OpenAIEmbeddings } from "@langchain/openai";
-// import { QdrantVectorStore } from "@langchain/qdrant";
-// import OpenAI from "openai";
-
-// const client = new OpenAI({
-//   apiKey: process.env.OPENAI_API_KEY,
-// });
-
-// export async function POST(req: NextRequest) {
-//   try {
-//     const { question, sources } = await req.json();
-
-//     if (!question || !sources || sources.length === 0) {
-//         return NextResponse.json({ error: "Missing question or sources" }, { status: 400 });
-//     }
-
-//     if (!process.env.QDRANT_URL || !process.env.QDRANT_KEY) {
-//         return NextResponse.json({ error: "Qdrant environment variables not set" }, { status: 500 });
-//     }
-
-//     const embeddings = new OpenAIEmbeddings({
-//         model: "text-embedding-3-large",
-//     });
-
-//     const vectorStore = await QdrantVectorStore.fromExistingCollection(embeddings, {
-//         url: process.env.QDRANT_URL,
-//         apiKey: process.env.QDRANT_KEY,
-//         collectionName: "PDF_Indexing",
-//     });
-
-//     const vectorRetriever = vectorStore.asRetriever({
-//         k: 3,
-//     });
-
-//     const relevantChunks = await vectorRetriever.invoke(question);
-
-//     const SYSTEM_PROMPT = `
-//         You are an AI assistant who search the user query from the context avilable to you from the PDF file with content and page number.
-//         Only answer based on the avilable context from file only.
-        
-//         Context: 
-//         ${JSON.stringify(relevantChunks)}
-//     `;
-
-//     const response = await client.chat.completions.create({
-//         model: process.env.OPENAI_MODEL || "gpt-4-turbo",
-//         messages: [
-//         { role: "system", content: SYSTEM_PROMPT },
-//         { role: "user", content: question },
-//         ],
-//     });
-
-//     return NextResponse.json({ text: response.choices[0].message.content });
-//   } catch (error: any) {
-//     console.error("Error in chat route:", error);
-//     return NextResponse.json(
-//       { error: error.message || "Internal server error" },
-//       { status: 500 }
-//     );
-//   }
-// }

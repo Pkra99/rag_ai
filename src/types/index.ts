@@ -1,13 +1,14 @@
-// Defines the structure for a single source item
 export interface Source {
-  id: number;
+  id: string;
   name: string;
   type: string;
+  size: string;
+  sourceType: "file" | "url" | "text";
 }
 
-// Defines the structure for a chat message
-export interface Message {
-  id: number;
-  text: string;
-  sender: 'user' | 'ai';
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  isLoading?: boolean;
 }

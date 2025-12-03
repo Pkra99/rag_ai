@@ -24,9 +24,10 @@ export interface SourceInput {
 
 interface AddSourceDialogProps {
   onAddSource: (source: SourceInput) => void;
+  trigger?: React.ReactNode;
 }
 
-export function AddSourceDialog({ onAddSource }: AddSourceDialogProps) {
+export function AddSourceDialog({ onAddSource, trigger }: AddSourceDialogProps) {
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
@@ -72,7 +73,7 @@ export function AddSourceDialog({ onAddSource }: AddSourceDialogProps) {
 
       if (data.success) {
         setLoadingMessage("Indexing complete!");
-        
+
         // Pass the source to parent component
         onAddSource({
           type: "file",
@@ -277,10 +278,14 @@ export function AddSourceDialog({ onAddSource }: AddSourceDialogProps) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="outline" className="w-full" disabled={isLoading}>
-          <Upload className="w-4 h-4 mr-2" />
-          Add Source
-        </Button>
+        {trigger ? (
+          trigger
+        ) : (
+          <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm">
+            <Upload className="w-4 h-4 mr-2" />
+            Add Source
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
@@ -302,7 +307,7 @@ export function AddSourceDialog({ onAddSource }: AddSourceDialogProps) {
             </p>
           </div>
         )}
-        
+
         <Tabs defaultValue="file" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="file" disabled={isLoading}>
@@ -349,8 +354,8 @@ export function AddSourceDialog({ onAddSource }: AddSourceDialogProps) {
                 disabled={isLoading}
               />
             </div>
-            <Button 
-              onClick={handleUrlSubmit} 
+            <Button
+              onClick={handleUrlSubmit}
               className="w-full"
               disabled={isLoading || !url.trim()}
             >
@@ -388,8 +393,8 @@ export function AddSourceDialog({ onAddSource }: AddSourceDialogProps) {
                 disabled={isLoading}
               />
             </div>
-            <Button 
-              onClick={handleTextSubmit} 
+            <Button
+              onClick={handleTextSubmit}
               className="w-full"
               disabled={isLoading || !text.trim()}
             >

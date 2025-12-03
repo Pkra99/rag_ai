@@ -1,27 +1,32 @@
-// Updated: components/chat/ChatInterface.tsx
 'use client'
 import { useState, useEffect, useRef } from "react";
-import { Send, Sparkles, Loader, StopCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import ReactMarkdown from "react-markdown";
+import { Loader, Plus, ArrowLeft } from "lucide-react";
 import React from "react";
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  isLoading?: boolean;
-}
+import {
+  PromptInput,
+  PromptInputTextarea,
+  PromptInputSubmit,
+  PromptInputFooter,
+  PromptInputBody,
+  PromptInputMessage,
+  PromptInputTools,
+  PromptInputButton
+} from "@/components/ai-elements/prompt-input";
+import { AddSourceDialog, SourceInput } from "@/components/sources/AddSourceDialog";
+import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import { CodeBlock } from "@/components/ai-elements/code-block";
+import { ChatMessage } from "@/types";
 
 interface ChatInterfaceProps {
-  messages: Message[];
+  messages: ChatMessage[];
   isStreaming: boolean;
+  isSourceSelected: boolean;
   onSendMessage: (message: string) => void;
   onStop?: () => void;
+  onAddSource?: (source: SourceInput) => Promise<void>;
 }
 
-export function ChatInterface({ messages, isStreaming, onSendMessage, onStop }: ChatInterfaceProps) {
+export function ChatInterface({ messages, isStreaming, isSourceSelected, onSendMessage, onStop, onAddSource }: ChatInterfaceProps) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -32,102 +37,124 @@ export function ChatInterface({ messages, isStreaming, onSendMessage, onStop }: 
     }
   }, [messages]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (input.trim() && !isStreaming) {
-      onSendMessage(input.trim());
+  const handleSubmit = (message: PromptInputMessage) => {
+    if (message.text.trim()) {
+      onSendMessage(message.text.trim());
       setInput("");
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
-  };
-
-  const handleButtonClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    if (isStreaming && onStop) {
-      onStop();
-    } else if (input.trim()) {
-      onSendMessage(input.trim());
-      setInput("");
-    }
-  };
-
-  const renderMessage = (message: Message) => {
+  const renderMessage = (message: ChatMessage) => {
     if (message.isLoading) {
       return (
         <div className="flex justify-start">
-          <div className="max-w-[80%] rounded-lg px-4 py-3 bg-muted flex items-center gap-2">
-            <Loader className="w-4 h-4 animate-spin text-primary" />
-            <span className="text-sm text-muted-foreground">Retrieving relevant documents and thinking...</span>
+          <div className="max-w-[90%] md:max-w-[80%] rounded-lg px-3 py-2 md:px-4 md:py-3 bg-muted flex items-center gap-2">
+            <Loader className="w-3 h-3 md:w-4 md:h-4 animate-spin text-primary" />
+            <span className="text-xs md:text-sm text-muted-foreground">Retrieving relevant documents and thinking...</span>
           </div>
         </div>
       );
     }
 
+    const isLastMessage = message.id === messages[messages.length - 1]?.id;
+    const showCursor = isStreaming && isLastMessage && message.role === "assistant";
+
     return (
-      <div
-        className={`flex ${
-          message.role === "user" ? "justify-end" : "justify-start"
-        }`}
-      >
-        <div
-          className={`max-w-[80%] rounded-lg px-4 py-3 ${
-            message.role === "user"
-              ? "bg-primary text-primary-foreground"
-              : "bg-muted"
-          }`}
-        >
+      <Message from={message.role}>
+        <MessageContent>
           {message.role === "assistant" ? (
-            <div className="prose prose-sm dark:prose-invert max-w-none flex items-start">
-              <div className="flex-1">
-                <ReactMarkdown>{message.content}</ReactMarkdown>
-              </div>
-              {isStreaming && (
-                <span className="inline-block w-1.5 h-4 ml-1 bg-primary animate-pulse rounded-sm flex-shrink-0" />
-              )}
-            </div>
+            <MessageResponse
+              components={{
+                code: ({ className, children, ...props }) => {
+                  const match = /language-(\w+)/.exec(className || "");
+                  return match ? (
+                    <CodeBlock
+                      code={String(children).replace(/\n$/, "")}
+                      language={match[1] as any}
+                      className="my-4"
+                    />
+                  ) : (
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  );
+                },
+              }}
+            >
+              {showCursor ? `${message.content}▍` : message.content}
+            </MessageResponse>
           ) : (
-            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+            <p className="whitespace-pre-wrap">{message.content}</p>
           )}
-        </div>
-      </div>
+        </MessageContent>
+      </Message>
     );
   };
 
   return (
     <div className="flex flex-col h-full bg-background overflow-hidden">
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-3xl mx-auto space-y-6">
-          {messages.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-center px-4 py-12">
-            <div className="max-w-lg space-y-6">
-              <div className="w-16 h-16 mx-auto bg-primary/10 rounded-2xl flex items-center justify-center">
-                <Sparkles className="w-8 h-8 text-primary" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-2xl font-semibold tracking-tight">Ready to assist</h2>
-                <p className="text-muted-foreground leading-relaxed">
+      <div className="flex-1 overflow-y-auto p-3 md:p-6">
+        <div className="max-w-3xl mx-auto space-y-4 md:space-y-6 h-full">
+          {!isSourceSelected ? (
+            <div className="h-full flex flex-col items-center justify-center text-center px-4 animate-in fade-in duration-500">
+              <div className="max-w-md space-y-8">
+                <div className="space-y-2">
+                  <h1 className="text-4xl md:text-6xl font-light tracking-tighter text-foreground/80 font-serif">
+                    RAG<span className="text-primary">ify</span>
+                  </h1>
+                  <p className="text-lg md:text-xl font-light text-muted-foreground tracking-wide">
+                    Your Knowledge, <span className="italic">Amplified</span>.
+                  </p>
+                </div>
+
+                <p className="text-sm text-muted-foreground/80 leading-relaxed max-w-sm mx-auto">
                   Upload your documents and start asking questions. I&apos;ll analyze your sources and provide detailed, contextual answers.
                 </p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4">
-                <div className="p-4 border border-border rounded-lg bg-card">
-                  <p className="text-sm font-medium">📄 Multiple formats</p>
-                  <p className="text-xs text-muted-foreground mt-1">PDF, Markdown, Text, URLs</p>
+
+                <div className="grid grid-cols-2 gap-4 text-left">
+                  <div className="p-4 rounded-xl bg-muted/50 border border-border/50 space-y-2">
+                    <div className="font-medium text-sm flex items-center gap-2">
+                      <span>📄</span> Multiple formats
+                    </div>
+                    <p className="text-xs text-muted-foreground">PDF, Markdown, Text, URLs</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-muted/50 border border-border/50 space-y-2">
+                    <div className="font-medium text-sm flex items-center gap-2">
+                      <span>💬</span> Smart responses
+                    </div>
+                    <p className="text-xs text-muted-foreground">Context-aware answers</p>
+                  </div>
                 </div>
-                <div className="p-4 border border-border rounded-lg bg-card">
-                  <p className="text-sm font-medium">💬 Smart responses</p>
-                  <p className="text-xs text-muted-foreground mt-1">Context-aware answers</p>
+
+                <div className="relative py-4">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-muted" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-background px-2 text-muted-foreground tracking-widest">
+                      Select a source to begin
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground/60">
+                  <ArrowLeft className="w-4 h-4 animate-pulse" />
+                  <span>Choose a document from the sidebar</span>
                 </div>
               </div>
             </div>
-          </div>
+          ) : messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center px-4 animate-in slide-in-from-bottom-4 duration-500">
+              <div className="max-w-lg space-y-6">
+                <div className="space-y-2">
+                  <h2 className="text-2xl font-medium tracking-tight">Conversation Initiated</h2>
+                  <p className="text-muted-foreground">
+                    Ask questions about this document. I&apos;ll analyze the content and provide context-aware answers.
+                  </p>
+                </div>
+              </div>
+            </div>
           ) : (
             messages.map((message) => (
               <React.Fragment key={message.id}>
@@ -140,37 +167,49 @@ export function ChatInterface({ messages, isStreaming, onSendMessage, onStop }: 
         </div>
       </div>
 
-      {/* Input Area */}
-      <div className="border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0">
-        <form onSubmit={handleSubmit} className="max-w-3xl mx-auto p-4">
-          <div className="flex gap-2">
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask a question about your documents..."
-              className="min-h-[60px] max-h-[200px] resize-none"
-              disabled={isStreaming}
-            />
-            <Button
-              type={isStreaming ? "button" : "submit"}
-              size="icon"
-              className="h-[60px] w-[60px] shrink-0"
-              onClick={handleButtonClick}
-              disabled={!input.trim() && !isStreaming}
+      {/* Input Area - Only show if source is selected */}
+      {isSourceSelected && (
+        <div className="p-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 animate-in slide-in-from-bottom-10 duration-300">
+          <div className="max-w-3xl mx-auto">
+            <PromptInput
+              onSubmit={handleSubmit}
+              className="w-full"
             >
-              {isStreaming ? (
-                <StopCircle className="h-5 w-5 text-destructive hover:text-destructive" />
-              ) : (
-                <Send className="h-5 w-5" />
-              )}
-            </Button>
+              <PromptInputBody>
+                <PromptInputTextarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Ask a question..."
+                  disabled={isStreaming}
+                  className="min-h-[40px] max-h-[200px]"
+                />
+              </PromptInputBody>
+              <PromptInputFooter>
+                <PromptInputTools>
+                  {onAddSource && (
+                    <AddSourceDialog
+                      onAddSource={onAddSource}
+                      trigger={
+                        <PromptInputButton size="icon-sm" variant="ghost">
+                          <Plus className="size-4" />
+                        </PromptInputButton>
+                      }
+                    />
+                  )}
+                </PromptInputTools>
+                <PromptInputSubmit
+                  disabled={!input.trim() && !isStreaming}
+                  status={isStreaming ? "streaming" : undefined}
+                  onClick={isStreaming && onStop ? (e) => { e.preventDefault(); onStop(); } : undefined}
+                />
+              </PromptInputFooter>
+            </PromptInput>
+            <p className="hidden md:block text-xs text-muted-foreground mt-2 text-center">
+              Press Enter to send, Shift+Enter for new line
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Press Enter to send, Shift+Enter for new line
-          </p>
-        </form>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
