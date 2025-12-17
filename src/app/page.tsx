@@ -21,6 +21,7 @@ const Index = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [sessionId, setSessionId] = useState<string>("");
   const [tokens, setTokens] = useState<number>(10);
+  const [selectedModel, setSelectedModel] = useState<string>("gemini-2.5-flash-lite");
   const { toast } = useToast();
 
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
@@ -337,18 +338,83 @@ const Index = () => {
           question: content,
           sources,
           targetSource: activeSource.name, // Pass target source name for filtering
-          conversationHistory: (chats[activeSourceId] || []).map(m => ({ role: m.role, content: m.content }))
+          conversationHistory: (chats[activeSourceId] || []).map(m => ({ role: m.role, content: m.content })),
+          model: selectedModel // Pass selected model
         }),
         signal: abortControllerRef.current.signal,
       });
 
       if (!response.ok) {
+        // Try to parse error response
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = { error: "Failed to process response", errorType: "generic_error" };
+        }
+
+        // Handle different error types with appropriate toast messages
         if (response.status === 429) {
           setTokens(0);
-          throw new Error("Daily limit reached. Please try again tomorrow.");
+
+          // Check if it's API quota or rate limit vs session tokens
+          if (errorData.errorType === "quota_exceeded") {
+            toast({
+              title: "🚫 API Quota Exhausted",
+              description: errorData.error || `Quota exhausted for ${errorData.modelName || "the AI model"}. Please try again later.`,
+              variant: "destructive",
+              duration: 10000,
+            });
+          } else if (errorData.errorType === "rate_limited") {
+            toast({
+              title: "⏳ Rate Limited",
+              description: errorData.error || "Too many requests. Please wait a moment and try again.",
+              variant: "destructive",
+              duration: 8000,
+            });
+          } else {
+            // Session token limit
+            toast({
+              title: "🚫 Daily limit reached",
+              description: "You've used all 10 free questions. Please come back tomorrow!",
+              variant: "destructive",
+              duration: 10000,
+            });
+          }
+          throw new Error(errorData.error || "Daily limit reached. Please try again tomorrow.");
         }
-        const result = await response.json();
-        throw new Error(result.error || "Chat request failed.");
+
+        // Handle auth errors
+        if (errorData.errorType === "auth_error") {
+          toast({
+            title: "🔐 Authentication Error",
+            description: errorData.error || "API authentication issue. Please contact support.",
+            variant: "destructive",
+            duration: 10000,
+          });
+          throw new Error(errorData.error || "Authentication error");
+        }
+
+        // Handle model errors
+        if (errorData.errorType === "model_error") {
+          toast({
+            title: "⚠️ Model Unavailable",
+            description: errorData.error || `The AI model (${errorData.modelName || "gemini"}) is currently unavailable. Please try again later.`,
+            variant: "destructive",
+            duration: 8000,
+          });
+          throw new Error(errorData.error || "Model unavailable");
+        }
+
+        // Generic error fallback
+        const errorMessage = errorData.error || "Chat request failed.";
+        toast({
+          title: "❌ Error",
+          description: errorMessage,
+          variant: "destructive",
+          duration: 6000,
+        });
+        throw new Error(errorMessage);
       }
 
       // Update tokens from header
@@ -391,7 +457,7 @@ const Index = () => {
           // Stop typing if buffer is empty and streaming is done
           clearInterval(typeWriter);
         }
-      }, 15); // Adjust speed here (lower = faster)
+      }, 1); // Adjust speed here 
 
       isTyping = true;
 
@@ -520,6 +586,8 @@ const Index = () => {
               isSourceSelected={!!activeSourceId}
               onStop={stopStreaming}
               onAddSource={handleAddSource}
+              selectedModel={selectedModel}
+              onModelChange={setSelectedModel}
             />
           </div>
         </main>
