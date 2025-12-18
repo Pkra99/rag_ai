@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from "react";
-import { Loader, Plus, ArrowLeft } from "lucide-react";
+import { Loader, Plus, ArrowLeft, Sparkles } from "lucide-react";
 import React from "react";
 import {
   PromptInput,
@@ -10,11 +10,15 @@ import {
   PromptInputBody,
   PromptInputMessage,
   PromptInputTools,
-  PromptInputButton
+  PromptInputButton,
+  PromptInputSelect,
+  PromptInputSelectTrigger,
+  PromptInputSelectContent,
+  PromptInputSelectItem,
+  PromptInputSelectValue,
 } from "@/components/ai-elements/prompt-input";
 import { AddSourceDialog, SourceInput } from "@/components/sources/AddSourceDialog";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
-import { CodeBlock } from "@/components/ai-elements/code-block";
 import { ChatMessage } from "@/types";
 
 interface ChatInterfaceProps {
@@ -24,9 +28,11 @@ interface ChatInterfaceProps {
   onSendMessage: (message: string) => void;
   onStop?: () => void;
   onAddSource?: (source: SourceInput) => Promise<void>;
+  selectedModel: string;
+  onModelChange: (modelId: string) => void;
 }
 
-export function ChatInterface({ messages, isStreaming, isSourceSelected, onSendMessage, onStop, onAddSource }: ChatInterfaceProps) {
+export function ChatInterface({ messages, isStreaming, isSourceSelected, onSendMessage, onStop, onAddSource, selectedModel, onModelChange }: ChatInterfaceProps) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -64,22 +70,7 @@ export function ChatInterface({ messages, isStreaming, isSourceSelected, onSendM
         <MessageContent>
           {message.role === "assistant" ? (
             <MessageResponse
-              components={{
-                code: ({ className, children, ...props }) => {
-                  const match = /language-(\w+)/.exec(className || "");
-                  return match ? (
-                    <CodeBlock
-                      code={String(children).replace(/\n$/, "")}
-                      language={match[1] as any}
-                      className="my-4"
-                    />
-                  ) : (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  );
-                },
-              }}
+              shikiTheme={["vitesse-light", "vitesse-dark"]}
             >
               {showCursor ? `${message.content}▍` : message.content}
             </MessageResponse>
@@ -196,6 +187,20 @@ export function ChatInterface({ messages, isStreaming, isSourceSelected, onSendM
                       }
                     />
                   )}
+                  <PromptInputSelect value={selectedModel} onValueChange={onModelChange} disabled={isStreaming}>
+                    <PromptInputSelectTrigger className="h-8 gap-2 text-xs">
+
+                      <PromptInputSelectValue />
+                    </PromptInputSelectTrigger>
+                    <PromptInputSelectContent>
+                      <PromptInputSelectItem value="gemini-2.5-flash-lite">
+                        Gemini 2.5 Flash Lite
+                      </PromptInputSelectItem>
+                      <PromptInputSelectItem value="gemini-2.5-flash">
+                        Gemini 2.5 Flash
+                      </PromptInputSelectItem>
+                    </PromptInputSelectContent>
+                  </PromptInputSelect>
                 </PromptInputTools>
                 <PromptInputSubmit
                   disabled={!input.trim() && !isStreaming}

@@ -7,8 +7,10 @@ import { streamText } from "ai";
 import { getSessionTokens, decrementSessionTokens } from "@/lib/redis";
 
 export async function POST(req: NextRequest) {
+  let selectedModel = "gemini-2.5-flash-lite"; // Default model
+
   try {
-    const { question, sources, targetSource } = await req.json();
+    const { question, sources, targetSource, model = "gemini-2.5-flash-lite" } = await req.json();
     const sessionId = req.headers.get("x-session-id") || "default-session";
 
     if (!question || !sources || sources.length === 0) {
@@ -118,8 +120,14 @@ All responses MUST follow these rules exactly.
 
     logger.log("📤 Streaming response with Gemini...");
 
+    // Validate model against allowed list
+    const allowedModels = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
+    selectedModel = allowedModels.includes(model) ? model : "gemini-2.5-flash-lite";
+
+    logger.log(`🤖 Using model: ${selectedModel}`);
+
     const result = streamText({
-      model: google("gemini-2.0-flash-lite"),
+      model: google(selectedModel),
       system: SYSTEM_PROMPT,
       prompt: `User Question: ${question}`,
     });
@@ -134,8 +142,86 @@ All responses MUST follow these rules exactly.
   } catch (error: any) {
     console.error("❌ Error in chat route:", error);
     console.error("Error details:", error.stack);
+
+    // Detect specific error types from Google API
+    const errorMessage = error.message || "";
+    const errorString = JSON.stringify(error).toLowerCase();
+
+    // Check for quota exhaustion
+    if (
+      errorMessage.includes("quota") ||
+      errorMessage.includes("QUOTA_EXCEEDED") ||
+      errorMessage.includes("RESOURCE_EXHAUSTED") ||
+      errorString.includes("quota") ||
+      errorString.includes("resource_exhausted")
+    ) {
+      return NextResponse.json(
+        {
+          error: `Quota exhausted for ${selectedModel} model. Please try again later.`,
+          errorType: "quota_exceeded",
+          modelName: selectedModel
+        },
+        { status: 429 }
+      );
+    }
+
+    // Check for rate limiting
+    if (
+      errorMessage.includes("rate limit") ||
+      errorMessage.includes("RATE_LIMIT_EXCEEDED") ||
+      errorMessage.includes("429") ||
+      errorString.includes("rate") ||
+      error.status === 429
+    ) {
+      return NextResponse.json(
+        {
+          error: "Too many requests. Please wait a moment and try again.",
+          errorType: "rate_limited",
+          modelName: selectedModel
+        },
+        { status: 429 }
+      );
+    }
+
+    // Check for API key issues
+    if (
+      errorMessage.includes("API key") ||
+      errorMessage.includes("INVALID_ARGUMENT") ||
+      errorMessage.includes("authentication") ||
+      error.status === 401 ||
+      error.status === 403
+    ) {
+      return NextResponse.json(
+        {
+          error: "API authentication issue. Please contact support.",
+          errorType: "auth_error"
+        },
+        { status: 500 }
+      );
+    }
+
+    // Check for model-specific errors
+    if (
+      errorMessage.includes("model") ||
+      errorMessage.includes("not found") ||
+      error.status === 404
+    ) {
+      return NextResponse.json(
+        {
+          error: "The AI model is currently unavailable. Please try again later.",
+          errorType: "model_error",
+          modelName: selectedModel
+        },
+        { status: 503 }
+      );
+    }
+
+    // Generic error fallback
     return NextResponse.json(
-      { error: error.message || "Internal server error" },
+      {
+        error: errorMessage || "An unexpected error occurred. Please try again.",
+        errorType: "generic_error"
+      },
       { status: 500 }
     );
   }
